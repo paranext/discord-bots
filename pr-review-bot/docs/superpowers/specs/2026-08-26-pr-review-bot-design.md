@@ -133,6 +133,9 @@ public key, GitHub App ID and private key, GitHub public-read token.
      can legitimately want early feedback, so this is a note, not a block.
    - **If this PR is already tracked, updates the existing record** (new urgency,
      team, PRD, note) rather than creating a second entry, and says so privately.
+     Re-requesting **resets the age** and **clears any existing claim** — it is a
+     fresh ask, and a claim on the previous round should not silently hide the
+     new request in the Being reviewed section.
 5. Posts the request message in the channel, stores the record, and rewrites the
    pinned digest immediately rather than waiting for the next cron tick.
 
@@ -185,6 +188,7 @@ Rendering rules:
   between edits without the bot rewriting the message.
 - Empty state: `**Needs review** · nothing waiting 🎉`.
 - Each title links to its PR.
+- A draft PR renders with a `draft` marker after its age.
 - If the rendered message would exceed Discord's 2000-character limit, the
   lowest-urgency, most-recently-requested rows are dropped and replaced with
   `…and N more` so truncation is never silent.
