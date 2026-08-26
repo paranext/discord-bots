@@ -221,6 +221,14 @@ pre-filled with the values already entered. A modal submission cannot be
 answered with another modal, but a button can open one — without this, a
 mistyped link costs the requester the whole form.
 
+The prefill cannot travel in the button's `custom_id`, which caps at 100
+characters — a PR URL alone is most of that. The submitted values are stashed in
+the store under the interaction id with a short TTL, and the `custom_id` carries
+only that key. Note also that the ephemeral interaction token expires after 15
+minutes, after which the button fails with a bare "This interaction failed"; the
+rejection text therefore echoes the submitted values inline as well, so a
+late-returning user can still copy them into a fresh command.
+
 ## The posted request message
 
 ```
