@@ -214,8 +214,8 @@ Rendering rules:
   urgency and most recently requested first, with `…and N more` appended.
   Truncation must never be silent, because a list that looks complete when it
   is not is worse than no list.
-- Entries with no team (see Message scanning) render in a final **Unsorted**
-  section.
+- Section order is fixed: team sections, then **Unsorted** (entries with no team,
+  see Message scanning), then **Being reviewed**.
 
 ## Refresh loop
 
@@ -415,11 +415,12 @@ encode team decisions that are not self-evident from the code.
 2. Install to the server with scopes `bot` and `applications.commands`.
 3. Apply channel permission overwrites limiting the bot to the review channels
    and the PRD forum.
-4. Register the guild-scoped command.
-5. Create and install the GitHub App on `paranext` for the allowlisted repos.
-6. Create the public-read token.
-7. Set Worker secrets; deploy; set the cron trigger.
-8. Run `/review-request` once, then pin the digest message by hand.
+4. Create and install the GitHub App on `paranext` for the allowlisted repos.
+5. Create the public-read token.
+6. Set Worker secrets; deploy; set the cron trigger.
+7. Deploy in shadow mode, with the command not yet registered. Wait for the first
+   refresh to post the digest, then pin that message by hand.
+8. Register the guild-scoped command only when moving past shadow mode.
 
 ## Open operational items
 
