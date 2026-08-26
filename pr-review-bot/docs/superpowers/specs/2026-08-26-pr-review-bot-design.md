@@ -60,6 +60,10 @@ Deliberately excluded from v1:
 | Two GitHub credentials routed by owner | Private repos exist only in `paranext`, where an App can be installed. Everything else the team reviews is public, so a read-only public token covers other orgs with no admin approval there. |
 | Cloudflare Workers | The command endpoint and scheduled refresh need no persistent socket. Free tier, no process to keep alive, no OS to patch. |
 | The digest message is pinned once by hand | Editing its own message needs no extra permission, so the bot never needs Manage Messages. |
+| The digest is an embed, not plain content | Plain message content caps at 2000 characters; an embed body allows 4096, and 6000 across embeds in one message. At roughly 90 characters per row that is ~45 rows before a second embed and ~65 before truncation is even possible, so truncation stops being a practical concern. |
+| Channel history is scanned for PR links | Required for shadow-mode rollout, and worth keeping permanently: the list stays complete when someone posts a link by hand out of habit instead of using the command. |
+| Validation errors carry a "Fix and retry" button | A modal submission cannot be answered with another modal, so without this a rejected link means retyping the whole form. |
+| Docs follow the `paranext-core` ADR convention | `.context/standards/Architecture-Decisions.md` — an append-only log of `adr-<slug>` entries. Anyone arriving from the product repos recognises the format immediately. |
 
 ## Architecture
 
@@ -139,8 +143,23 @@ public key, GitHub App ID and private key, GitHub public-read token.
 5. Posts the request message in the channel, stores the record, and rewrites the
    pinned digest immediately rather than waiting for the next cron tick.
 
-All rejections are ephemeral, so a failed request never leaves noise in the
-channel.
+### Validation feedback
+
+Rejections are **ephemeral** — shown immediately to the requester only, so a
+typo leaves no noise in the channel. Ephemeral is not silent: every rejection
+must be actionable on its own, naming the specific problem and its fix.
+
+- Unlisted repo: names the repo, states that it is not on the allowlist, and
+  links the config file to add it.
+- Not a PR URL: shows the expected shape.
+- PR not found or not visible: distinguishes "does not exist" from "the bot
+  cannot see it", since the second is a credential problem with a different fix.
+- Already merged or closed: says which.
+
+Every rejection includes a **"Fix and retry"** button that reopens the modal
+pre-filled with the values already entered. A modal submission cannot be
+answered with another modal, but a button can open one — without this, a
+mistyped link costs the requester the whole form.
 
 ## The posted request message
 
@@ -189,9 +208,14 @@ Rendering rules:
 - Empty state: `**Needs review** · nothing waiting 🎉`.
 - Each title links to its PR.
 - A draft PR renders with a `draft` marker after its age.
-- If the rendered message would exceed Discord's 2000-character limit, the
-  lowest-urgency, most-recently-requested rows are dropped and replaced with
-  `…and N more` so truncation is never silent.
+- Rendered as an embed body (4096 characters). Past that, **Being reviewed**
+  moves to a second embed in the same message (6000 characters total).
+- Only if both are exhausted — roughly 65 rows — are rows dropped: lowest
+  urgency and most recently requested first, with `…and N more` appended.
+  Truncation must never be silent, because a list that looks complete when it
+  is not is worse than no list.
+- Entries with no team (see Message scanning) render in a final **Unsorted**
+  section.
 
 ## Refresh loop
 
@@ -219,6 +243,7 @@ habit.
 KV keys:
 
 - `digest:<channelId>` → the digest message ID.
+- `scan:<channelId>` → the last message ID scanned in that channel.
 - `requests` → array of records:
 
 ```
@@ -230,11 +255,32 @@ KV keys:
   claimedBy, claimedAt,         // null when unclaimed
   title,                        // cached from GitHub for rendering
   isDraft,
+  source,                       // "command" | "scanned"
   lastSyncedAt
 }
 ```
 
 `owner/repo/number` is the identity used for deduplication.
+
+## Message scanning
+
+The bot scans configured channels for GitHub PR links so the list reflects
+reality even when nobody uses the command. This is what makes shadow-mode
+rollout possible, and it stays enabled afterwards.
+
+On each refresh, for each configured channel: read messages newer than
+`scan:<channelId>`, extract allowlisted PR URLs, and create records with
+`source: "scanned"`. On first run, look back 14 days rather than the whole
+channel history.
+
+Scanned records have no team, urgency, PRD, or note, because nobody supplied
+them. They render in an **Unsorted** section and are otherwise treated
+identically — they expire on review, can be claimed, and age the same way.
+
+Running `/review-request` on an already-scanned PR **upgrades the record in
+place** rather than creating a duplicate: `source` becomes `"command"` and the
+supplied fields are filled in. Identity is `owner/repo/number`, so the bot's own
+request messages are skipped during scanning to avoid double-counting.
 
 ## Failure modes
 
@@ -298,9 +344,70 @@ subtly wrong:
 Adapters are exercised against a stubbed `fetch`, asserting request shape rather
 than live behavior. Vitest with `@cloudflare/vitest-pool-workers`.
 
+Continuous integration on every PR to this repo: typecheck, lint, unit tests, and
+a **coverage gate on `core/`**. The pure core holds everything that can be
+subtly wrong, so it carries a high bar; the thin adapters carry a lower one.
+Unlike the product repos, this repo is ours, so CI here raises none of the
+objections that ruled out per-repo automation.
+
+Two additions that catch the failures unit tests cannot:
+
+- **Recorded fixtures** of real GitHub and Discord responses, so an upstream
+  payload change fails in CI rather than in the channel.
+- **Read-only mode**, which runs the full refresh loop against live data and
+  logs the message it would post without writing anything. This allows
+  end-to-end exercise against real PRs with zero channel side effects.
+
+The state-transition table test is exhaustive rather than representative: every
+combination of open/merged/closed, review decision, claimed/unclaimed, and draft
+status, asserting both survival and rendered section. That matrix is the product.
+
 Manual smoke test before rollout: a scratch Discord server with
 `wrangler dev --remote`, covering the full path — command, modal, post, button
 claim, reaction claim, and auto-removal after a real review.
+
+## Rollout
+
+Staged, so the list has to earn trust before anyone is asked to change habits.
+
+1. **Scratch server.** Full manual pass: command, modal, post, button claim,
+   reaction claim, every rejection path, auto-removal after a real review.
+2. **Shadow mode, one sprint.** The bot runs in the real review channel,
+   scanning messages and maintaining the pinned list. The command stays
+   disabled. Nobody changes anything about how they work. The question being
+   answered is narrow and falsifiable: *does the list stay accurate on its own?*
+   Rows that linger after review, or PRs that never appear, are bugs to fix
+   before proceeding.
+3. **Command enabled.** Manual posting keeps working via scanning, so adoption
+   can be gradual and nothing breaks for anyone who forgets.
+4. **Command becomes the norm.** Scanning remains as the safety net.
+
+Shadow mode is the important stage: it validates the tracking half — the half
+that actually changes behavior — without requiring a single person to learn
+anything.
+
+## Documentation
+
+Docs live in the repo and follow the conventions the team already uses.
+
+- **README.md** — usable in 30 seconds: what the pinned list is, the command,
+  the claim button, the `:code_review:` reaction. Written for a teammate, not a
+  maintainer.
+- **docs/architecture.md** — the two entry points, the three module seams, and
+  the data flow from command to KV to digest. Enough that a newcomer can find
+  where a given behavior lives.
+- **docs/setup.md** — the runbook below, kept current with the real deployment.
+- **docs/operations.md** — what to do when something breaks: digest message
+  deleted, credential rotation, adding a repo, adding a team, restoring lost KV.
+- **docs/architecture-decisions.md** — append-only `adr-<slug>` entries matching
+  the format of `paranext-core`'s `.context/standards/Architecture-Decisions.md`,
+  including a Context / Decision / alternatives-rejected template. The decisions
+  in this spec are its first entries: no repo automation, any review removes an
+  entry, two credentials routed by owner, embed rendering, scanning as a
+  permanent fallback.
+
+Comments in `core/` explain *why*, not *what* — the rendering and expiry rules
+encode team decisions that are not self-evident from the code.
 
 ## Setup runbook
 
