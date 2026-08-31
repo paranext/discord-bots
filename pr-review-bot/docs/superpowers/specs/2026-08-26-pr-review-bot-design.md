@@ -1,8 +1,14 @@
 # PR Review Request Bot — Design
 
 **Date:** 2026-08-26
-**Status:** Revised after adversarial review and independent API fact-check.
-Hosting decision pending team input.
+**Status:** Ready to plan. Three rounds of adversarial review are folded in, and
+the nine open questions they raised are all **decided** — see Decision log, which
+records each answer and why. Every mechanical correction is applied inline.
+A render proof built before any code (see Preview harness) caught one further
+defect the prose had hidden: the compact `3d` age form the digest example used is
+not producible by `<t:epoch:R>`, so the two rules the spec asserted could not both
+hold. Ages are now long form. Scope is v1 as specced — nothing severed. Hosting is
+**deliberately deferred** behind the store interface.
 **Author:** Jolie Rabideau
 
 ## Problem
@@ -24,19 +30,24 @@ changes behavior.
 
 ## Solution summary
 
-A Discord bot with two halves:
+A Discord bot with three halves — two mechanisms and a delivery layer:
 
 - `/review-request` opens a modal (dropdowns plus the PR link) and posts a
   consistent, machine-generated request message in the channel.
 - The bot maintains **one pinned "Needs review" message**, rewritten every five
   minutes, grouped by dev team. Entries leave the list automatically once the PR
   has actually been reviewed. Re-requesting replaces bumping.
+- **One conditional post a day** in the channel — a count, the oldest age, and a
+  jump link to the pin — posted only when something is waiting. A pinned message
+  that is silently edited reaches nobody; this is the layer that makes the
+  tracking half arrive.
 
 ## Non-goals
 
 Deliberately excluded from v1:
 
-- DM nudges or reminders.
+- DM nudges and per-person reminders. The one daily channel post is neither: it
+  names no individual and lands in a channel people already read.
 - Per-person views ("PRs you have not reviewed").
 - Review-time analytics or reporting.
 - Writing anything to GitHub. All GitHub access is read-only.
@@ -47,10 +58,10 @@ Deliberately excluded from v1:
 
 | Decision | Rationale |
 |---|---|
-| No repo automation; no GitHub Actions | Would require a workflow in every repo, and would push the team toward "opening a PR means ready for review". Opening a PR must stay separate from requesting review. |
+| No repo automation; no GitHub Actions | **Opening a PR must stay separate from requesting review**, and any repo-side trigger collapses the two. (The earlier rationale — "would require a workflow in every repo" — was false: a search-based digest could run from one repo we own, as the Testing section concedes. The separation argument is the one that survives.) A label-based alternative fares no better: labels are a metadata convention with more friction than a dropdown and no generated text, and this team already abandoned one metadata convention. |
 | GitHub is read-only, keyed off the pasted URL | Works for any repo with no per-repo setup and no process change. |
 | An entry leaves the list on **any** review, derived from review **events** | The list answers "has anyone picked this up yet", not "is this merged". Implemented as `reviews(...)` with `submittedAt` newer than the request — **not** `reviewDecision`, which is null on unprotected branches, never resets after a push, and ignores comment-only reviews. See Exit condition. |
-| Records are **resolved, never deleted** | Deletion loses team, urgency, PRD, note and request history, makes re-requesting impossible to detect, and leaves no answer to "why did my row disappear". |
+| Records are **resolved, never deleted** | Deletion loses team, urgency, PRD, note and request history, makes re-requesting impossible to detect, and leaves no answer to "why did my row disappear". The corollary is that a resolved record is a tombstone the dedup path matches forever, so every write path must say whether it reopens; see Reopening a resolved record. |
 | Re-running `/review-request` re-lists a PR | After changes are requested and addressed, re-requesting is the bump — and it is a real signal rather than a "still needs eyes" message. Works only because exit is event-based; with `reviewDecision` a re-requested PR would be re-dropped within one tick, forever. |
 | Grouped by dev team, urgency within | Simple and Power are separate dev teams. Most readers only care about their own team's rows, so team is the primary axis. |
 | Urgency is always emoji **plus** words | The bot generates the text, so no one needs to decode a symbol from memory. This was the stated objection to the manual emoji convention. |
@@ -60,12 +71,16 @@ Deliberately excluded from v1:
 | Claimed PRs move to a section, not off the list | An abandoned claim stays visible instead of silently vanishing. |
 | A stale claim **auto-clears** rather than displaying a warning next to a name | A ⚠️ beside a person in a permanently pinned message is a public lateness board with no context for why they are stuck. The predictable adaptation is that people stop claiming, which destroys the data and makes the section look broken. Auto-clearing returns the PR to its team section where someone else can pick it up — which is the actual goal. |
 | Records live in a **serialized store**, not a shared mutable KV value | KV has no compare-and-swap, is eventually consistent, and caps at one write per second per key. One array under one key, written by both the cron and interactive handlers, loses updates by construction: a claim can be silently erased by a concurrent sync, producing exactly the duplicate review the claim feature exists to prevent. |
-| Blocking urgency requires a reason | Nothing otherwise caps 🔥, and the rational move for every requester is 🔥, which returns the urgency axis to carrying no information. A required note makes the claim visible and accountable at no process cost. |
+| Blocking urgency requires a reason, **rendered in the digest** | Nothing otherwise caps 🔥, and the rational move for every requester is 🔥, which returns the urgency axis to carrying no information. The reason is only accountable if it is *read*, so it renders inline beneath 🔥 rows in the digest — not solely in a request message that sinks. A reason collected and never displayed is four seconds of unfalsifiable typing buying permanent top-of-list placement. |
+| 🧊 means **This week**, not "when there's time" | An urgency level that publicly asks people *not* to review your PR is one nobody selects, which collapses the primary sort axis to one bit — and Problem says low-priority PRs are already the ones that rot. A commitment keeps the third level worth choosing. |
+| One conditional daily post carries the digest | Discord fires a pin notification once, at the initial hand-pin; every subsequent `PATCH` is silent. Tracking changes behavior only if tracked state reaches a human eye, so without a delivery layer v1's claim shrinks to "the author can check instead of bumping". The post names counts and the oldest age only — no individuals — so it is not the per-person nudge the non-goals exclude. |
+| Per-person timing data stays out of the render | `claimedAt` and `requestCount` are needed by auto-clear and dedup, but a claim age beside a name in a permanently pinned message is a lateness board, and `re-asked Nh ago` is a per-author nag counter. Both stay in the store and off the screen. "No review-time analytics" is otherwise a promise about what v1 *builds*, not about what the pin displays. |
+| Ages render long form (`3 days ago`) | `<t:epoch:R>` has no compact variant, so the compact `3d` form is only reachable by computing ages — which makes the body a function of wall-clock time and destroys the write-skip. Long form costs ~20–30 characters a row and roughly 20 rows of embed capacity, and keeps an idle team at zero writes. |
 | Explicit repo allowlist | A mispasted link fails loudly instead of becoming a permanent row. |
 | Two GitHub credentials routed by owner | Private repos exist only in `paranext`, where an App can be installed. Everything else the team reviews is public, so a read-only public token covers other orgs with no admin approval there. |
 | Cloudflare Workers | The command endpoint and scheduled refresh need no persistent socket. Free tier, no process to keep alive, no OS to patch. |
 | The digest message is pinned once by hand | Editing its own message needs no extra permission, so the bot never needs Manage Messages. |
-| The digest is an embed, not plain content | Plain message content caps at 2000 characters; an embed body allows 4096, and 6000 across embeds in one message. At roughly 90 characters per row that is ~45 rows before a second embed and ~65 before truncation is even possible, so truncation stops being a practical concern. |
+| The digest is an embed, not plain content | Plain message content caps at 2000 characters; an embed body allows 4096, and 6000 across embeds in one message. At the 150–180 characters a real row costs once titles are markdown links and PRDs are `<#thread>` mentions, that is roughly 25 rows per embed — so an embed roughly doubles plain content's capacity, but truncation stays a real path and needs the explicit rule in Rendering rules. |
 | Channel history is scanned for PR links | Required for shadow-mode rollout, and worth keeping permanently: the list stays complete when someone posts a link by hand out of habit instead of using the command. |
 | Validation errors carry a "Fix and retry" button | A modal submission cannot be answered with another modal, so without this a rejected link means retyping the whole form. |
 | Docs follow the `paranext-core` ADR convention | `.context/standards/Architecture-Decisions.md` — an append-only log of `adr-<slug>` entries. Anyone arriving from the product repos recognises the format immediately. |
@@ -79,10 +94,35 @@ correctly.
 **A record is resolved when GitHub reports a review event newer than the
 record's most recent request**, or when the PR is merged or closed.
 
-Query `reviews(last: 20) { submittedAt, state, author { login } }` and compare
-`submittedAt` against `lastRequestedAt`. **Any** review state counts, including
-`COMMENTED` — a reviewer who leaves fifteen line comments has unambiguously
-looked.
+Query `reviews(last: 20) { submittedAt, state, author { login, ... on Bot { login } } }`
+and compare `submittedAt` against `lastRequestedAt`. **Any** review state counts,
+including `COMMENTED` — a reviewer who leaves fifteen line comments has
+unambiguously looked.
+
+Three filters apply before the comparison, and each closes a permanent-drop loop:
+
+- **Bot reviews do not count.** Copilot code review, CodeRabbit and every review
+  bot submit real `PullRequestReview` objects. Request at 10:00, Copilot at 10:01,
+  row gone at 10:05 — and a re-request is re-dropped within one tick. That is the
+  same loop this section correctly diagnoses for `reviewDecision`, re-entered by
+  another door. Reject an author whose `__typename` is `Bot` or whose login ends
+  in `[bot]`.
+- **The requester's own reviews do not count.** An author leaving line comments on
+  their own PR through the review flow produces the same object, with the same
+  effect. This requires the requester's GitHub login, which the bot does not have
+  from Discord — so match on `author.login == pr.author.login` (the PR's own
+  author, which the query already can select) rather than on the Discord
+  requester. That covers the real case without a Discord-to-GitHub identity map.
+- **A review with a null `submittedAt` is ignored.** That is a `PENDING` review —
+  a reviewer with unsubmitted line comments. Nobody has looked yet on the record.
+
+**Scanned records seed `lastRequestedAt` from the scanned message's timestamp**,
+not from the scan time. Scan time is later than every review the PR already has,
+so a conversational mention of a PR approved last week would become a permanent
+row that only merging clears — tripping shadow mode's own accuracy threshold on
+rows whose review landed before the bot existed. With the message timestamp as the
+seed, the ingest comparison resolves such a record immediately: **a scanned record
+whose review already happened is born resolved.**
 
 Do **not** use `reviewDecision`. Verified against GitHub's documentation and
 maintainer discussions, it fails this design three ways:
@@ -108,13 +148,16 @@ downstream of this field's semantics.
 
 ## Architecture
 
-A single Cloudflare Worker with two entry points:
+A single worker process with two entry points. The examples below name Cloudflare
+Workers because that is the leading candidate, but the hosting choice is deferred
+and reaches only the store adapter and one config flag; see Hosting constraints.
 
 - **`POST /interactions`** — all Discord interactions: the slash command, the
   modal submission, the claim button. Verifies Discord's Ed25519 signature
   against the app public key before doing anything else. No gateway connection.
 - **`scheduled()`** — a cron trigger every five minutes: re-sync against GitHub,
-  read reactions for unclaimed entries, rewrite the pinned message.
+  read reactions for unclaimed entries, rewrite the pinned message, and — once a
+  day, when something is waiting — post the daily message.
 
 Three modules with deliberate seams:
 
@@ -141,10 +184,15 @@ Checked into the repo, so changes are reviewable one-line PRs:
   `paranext/paratext-bible-internal-extensions`,
   `eten-tech-foundation/scripture-editors`.
 - **Teams** — `Power`, `Simple`, `General`.
-- **Urgency levels** — `🔥 Blocking`, `🫕 Soon`, `🧊 When there's time`.
+- **Urgency levels** — `🔥 Blocking`, `🫕 Soon`, `🧊 This week`.
 - **Claim emoji** — `code_review:1075535230087221248`.
 - **Stale-claim threshold** — 2 days.
 - **Refresh interval** — 5 minutes.
+- **Recently-cleared window** — 1 hour.
+- **Daily post time** — 09:00 in the team's working timezone, and the channel it
+  posts to (the digest channel).
+- **Per-tick budgets** — reaction reads, scan pages, and resolved-record purges.
+- **Stale-banner threshold** — 30 minutes since the last successful sync.
 
 Secrets (Worker secrets, never in the repo): Discord bot token, Discord app
 public key, GitHub App ID and private key, GitHub public-read token.
@@ -174,7 +222,11 @@ public key, GitHub App ID and private key, GitHub public-read token.
    - **PR link** — short text, required.
    - **Team** — select: Power / Simple / General.
    - **Urgency** — select: the three configured levels. Choosing 🔥 Blocking
-     makes the note field required; nothing else caps its use.
+     makes the note field required — enforced **server-side on submit**, not in
+     the modal: `required` is a static field in the payload Discord renders
+     before the user picks anything, and a modal has no conditional logic and no
+     re-render. An empty note with 🔥 urgency is therefore a rejection carrying
+     the existing "Fix and retry" button. Nothing else caps its use.
    - **PRD** — select, built from active threads in the PRD forum, plus "None".
      Capped at 25 options (a Discord limit); if there are more active threads,
      the 25 most recently active are shown and the omission is noted in the
@@ -194,14 +246,55 @@ public key, GitHub App ID and private key, GitHub public-read token.
    - **If this PR is already tracked, updates the existing record** (new urgency,
      team, PRD, note) rather than creating a second entry, and says so privately.
      Re-requesting **clears any existing claim** — a claim from the previous round
-     must not hide the new request in the Being reviewed section. It updates
+     must not hide the new request in the Being reviewed section. If the matched
+     record is **resolved, re-requesting reopens it** (see Reopening). It updates
      `lastRequestedAt` and increments `requestCount`, but **`firstRequestedAt` is
      never changed**: sorting is oldest-first, so resetting the age would push
      the honest re-requester *down* the list and penalise using the mechanism the
-     design nominates as the replacement for bumping. The row renders both:
-     `8d · re-asked 2h ago`.
+     design nominates as the replacement for bumping. `requestCount` is **not
+     rendered** — see the digest's rules on per-person data — but it is what makes
+     re-request detection and this sort rule possible.
 5. Posts the request message in the channel, stores the record, and rewrites the
    pinned digest immediately rather than waiting for the next cron tick.
+
+   The immediate rewrite is **behind a config flag**, because on a CPU-capped host
+   it is the step that breaks the budget: Ed25519 verification, GitHub JSON
+   parsing, a full digest render and embed serialization all draw from the same
+   allowance, and `waitUntil` work draws from it too. With the flag off, the
+   handler writes the record and returns, and the next tick renders — costing up
+   to one refresh interval of lag. Which way the flag sits is a hosting
+   consequence, not a product decision; see Hosting constraints.
+
+### Reopening a resolved record
+
+Records are resolved, never deleted, and identity is `owner/repo/number`. Those
+two rules together mean a resolved record is a **tombstone that the dedup path
+will match forever**, so every write path that matches an existing record must
+state what it does when that record is resolved. Without this, the design's
+headline workflow fails in exactly the case it exists for: a PR is reviewed,
+changes are requested, the author pushes fixes and re-requests — and the
+re-request updates a resolved record that the refresh loop never loads, so the
+PR silently never returns to the digest.
+
+**Clearing `resolvedAt` and `resolvedBy` is what returns a record to the open
+set.** Three paths do it:
+
+- **Re-request** (`/review-request` on a resolved PR) — reopens, and is the
+  normal second-round case.
+- **`Resolve ▾` on a row resolved by mistake** — the same select menu offers
+  resolved rows from the last 24 hours as `Reopen ▾`, since a mis-resolve is
+  otherwise unrecoverable.
+- **Message scanning** — a later mention of a resolved PR does **not** reopen it.
+  A resolved PR being discussed conversationally is the common case, and
+  resurrecting rows from chatter is how a list becomes untrustworthy. Scanning
+  skips resolved records rather than silently swallowing or silently resurrecting
+  them; this asymmetry with re-request is deliberate, because one is an explicit
+  request and the other is not.
+
+Reopening **appends** the cleared `{resolvedAt, resolvedBy}` pair to
+`resolutionHistory` rather than discarding it, so "why did my row disappear, and
+why is it back" stays answerable. `firstRequestedAt` is untouched, for the same
+reason a re-request does not reset it.
 
 ### Validation feedback
 
@@ -248,33 +341,78 @@ automatically.
 One message per configured channel, pinned by hand once at setup.
 
 ```
-**Needs review** · 4 open · updated <relative timestamp>
+**Needs review** · 4 open · updated 2 minutes ago
 
 __Power__
-🔥 PT-4398 P10 backend sync-activity signal · 3d
+🔥 Blocking · PT-4398 P10 backend sync-activity signal · 3 days ago
      paratext-10-studio#177 · Trust PRD
+     needs a P10 build before Thursday's demo
+
+🫕 Soon · PT-4401 Sync activity indicator · 6 hours ago
+     paranext-core#2701
 
 __Simple__
-🧊 PT-4363 Internet Settings UI Enhancements · 8d
+🧊 This week · PT-4363 Internet Settings UI Enhancements · 8 days ago
      paranext-core#2695
 
 **Being reviewed** (2)
-👀 PT-3408 Collapse extra spaces in Find queries · Katherine · 2h
-👀 PT-4325 Registration Needed Dot · Ira · 4d ⚠️
+👀 PT-3408 Collapse extra spaces in Find queries · Katherine · 🔥 Power
+👀 PT-4325 Registration Needed Dot · Ira · 🫕 Simple
+
+Recently cleared
+paranext-core#2688 — reviewed by Katherine
+paratext-assistant#88 — cleared by @Jolie
 ```
 
 Rendering rules:
 
 - Team sections in a fixed order: Power, Simple, General. A team with no open
   rows is omitted entirely.
+- Urgency renders as **emoji plus words** here, not emoji alone. The digest is
+  the permanent surface, so it is the one place that must not require decoding a
+  symbol from memory — which was the stated objection to the manual convention.
+  🧊 against 🧀 at mobile emoji size is two coloured blobs.
 - Within a team: urgency descending, then age descending (oldest first).
 - Age is time since the request was posted, not since the PR was opened.
 - Claimed entries move out of their team section into **Being reviewed**, showing
-  claimer, claim age, and **the urgency and team they came from** — a lead
-  scanning for what is blocking Power must still see it once it is claimed.
+  the claimer and **the urgency and team they came from** — a lead scanning for
+  what is blocking Power must still see it once it is claimed. The **claim age is
+  not rendered.** `Ira · 4d` beside a name in a permanently pinned message *is* a
+  lateness warning; the ⚠️ an earlier draft removed was only its label. The timer
+  stays in the record, where stale auto-clear needs it, and off the screen, which
+  is the part that changes behavior.
+- A 🔥 Blocking row renders its **reason inline**, indented beneath the row. This
+  is the only place the required note is visible to anyone deciding what to pick
+  up, and therefore the only version in which the gate is accountable rather than
+  ceremonial. It costs roughly 40–60 characters on the highest-priority rows.
+- `requestCount` is **never rendered.** Re-request detection and the sort rule
+  need the field; publishing `re-asked Nh ago` turns the pin into a per-author nag
+  counter, and combined with `claimedAt` makes the store a per-person latency
+  dataset one query from a leaderboard.
+- **Recently cleared** — rows resolved within the configured window (1 hour)
+  render as a short trailing list, distinguishing a review from a manual clear:
+  `#2688 — reviewed by Katherine` against `#177 — cleared by @Jolie`. Without it a
+  row vanishes with no explanation to its author, and a handful of those is what
+  makes people stop trusting a list. An hour rather than a single tick, because
+  five minutes is missed by anyone who was in a meeting.
+- The **stale banner** replaces the `updated` relative timestamp rather than
+  sitting beside it, so a reader never has to do the subtraction. It renders
+  whenever `now - lastSync` exceeds the stale threshold — a property of the
+  arguments, not of whether this tick's sync succeeded; see Refresh loop step 9.
 - The "updated" footer uses a Discord relative timestamp, so it stays accurate
   between edits without the bot rewriting the message.
-- Empty state: `**Needs review** · nothing waiting 🎉`.
+- The header count is **open rows**, not rendered rows: `31 open` always means the
+  true size of the queue, and `…and N more` explains any gap. Under-reporting the
+  backlog is the direction the list must never lie in. The two figures can differ
+  legitimately, because **Being reviewed** may sit in a second embed with its own
+  budget, so the count needs this definition rather than falling out of the render.
+- Empty state: `**Needs review** · nothing waiting 🎉`, and **no components at
+  all**: a String Select requires 1–25 options, so a menu rendered with an empty
+  option list is a 400 and the `PATCH` fails outright. Since a failed edit is
+  retried on the next tick, that would freeze the digest displaying PRs that are
+  already done — the list lying in the trust-critical direction. `Resolve ▾` is
+  omitted when there are no open rows; `Claim a PR ▾` when there are no
+  *unclaimed* rows.
 - Each title links to its PR.
 - A draft PR renders with a `draft` marker after its age.
 - Rendered as an embed **description** (4096 characters). Past that, **Being
@@ -285,12 +423,30 @@ Rendering rules:
   `<#thread>` mentions, so practical capacity is roughly 25 rows per embed —
   materially lower than a naive character estimate suggests. Truncation is a
   real path, not a theoretical one.
+- Truncation ranks **null urgency below 🧊**. Every scanned row has no urgency, so
+  during shadow mode this rule decides the entire list; leaving it unstated left
+  the majority case undefined.
 - When capacity is exhausted, rows are dropped lowest-urgency and most-recently
   requested first, with `…and N more` appended. Truncation must never be silent:
-  a list that looks complete when it is not is worse than no list.
+  a list that looks complete when it is not is worse than no list. A row dropped
+  by truncation is **also absent from the select menus** — see Claiming and
+  removal, which populates them from this same ranking.
+- All ages render as Discord relative timestamps (`<t:epoch:R>`) rather than
+  strings the bot computes — and therefore in **long form** (`3 days ago`, not
+  `3d`). Discord offers no compact variant, so the compact form an earlier draft
+  showed was unreachable: the two rules could not both hold. Long form is the one
+  that keeps the write-skip, at a cost of ~20–30 characters a row, which lowers
+  practical capacity from roughly 25 rows to nearer 20.
+  Computed ages would make the rendered body a function of wall-clock time as
+  well as record state, so a row crossing an hour or day boundary
+  (`2h`→`3h`, `47h`→`2d`) would change the body on its own. With a dozen open
+  rows that happens on nearly every tick, which would defeat step 9's
+  write-skip and turn "an idle team costs no writes" into 288 no-op `PATCH`es a
+  day — the figure the KV write budget and the Discord rate-limit analysis both
+  depend on. Relative timestamps make the body a pure function of record state.
 - Section order is fixed: team sections, then **Needs triage** (entries with no
-  team, see Message scanning), then **Being reviewed**.
-- A row shows `re-asked Nh ago` when `requestCount > 1`.
+  team, see Message scanning), then **Being reviewed**, then
+  **Recently cleared**.
 
 ## Refresh loop
 
@@ -309,19 +465,102 @@ Every five minutes:
 4. Apply the exit condition. Set `resolvedAt` and `resolvedBy`; do not delete.
 5. Clear any claim older than the stale threshold, returning that row to its team
    section marked `previously claimed`.
-6. Scan configured channels for new PR links (see Message scanning).
+6. Scan configured channels for new PR links (see Message scanning), **paging
+   until fewer than 100 messages return or the per-tick page cap is hit**.
+   `GET /channels/{id}/messages` caps at 100 per call, so a single call per
+   channel silently drops messages on a busy interval and then advances the cursor
+   past them. On hitting the cap, advance the cursor only to the oldest fully
+   processed message.
 7. Refresh the cached PRD thread list.
 8. Read `:code_review:` reactions for unclaimed records, **up to a fixed
    per-tick budget**, oldest-unchecked first. This is a secondary path; the
-   digest select menu is primary.
-9. Render the digest and `PATCH` it — only if the rendered body excluding the
-   timestamp line has changed, so an idle team costs no writes.
+   digest select menu is primary. Records whose `messageId` is shared with
+   another record are **skipped by this path entirely** — see Claiming and
+   removal.
+9. **Re-read records from the store, then** render the digest and `PATCH` it —
+   only if the rendered body has changed, so an idle team costs no writes. The
+   re-read is not optional: see Rendering reads the committed state.
+
+   **This step runs even when step 2 failed.** The digest is a pure function of
+   `(records, lastSync, now)`, so the stale banner is a rendering consequence
+   rather than a sync side effect. Otherwise the banner can never appear: a tick
+   that dies at the GitHub step never reaches the renderer, and readers keep
+   seeing a normally formatted list — which is precisely the failure Monitoring
+   names as the one it most needs to avoid. A failed sync aborts *record
+   mutation*, not rendering.
+10. Purge resolved records older than the 30-day retention window, capped at a
+    fixed number per tick so a backlog cannot blow the tick's budget. Without
+    this step the retention rule has no execution site and resolved records
+    accumulate forever, growing step 1's cost on every tick.
+11. If the configured daily-post time has passed and no post has been made for
+    today, and at least one row is open, post the daily message and record the
+    date. A clear queue posts nothing, so the message never becomes wallpaper.
+
+Before step 2, the `paranext` credential is minted if needed: a locally signed
+RS256 JWT, then `POST /app/installations/{id}/access_tokens`. **Installation
+tokens expire hourly**, so this is a recurring cost against the tick's subrequest
+budget, not a startup step — one extra subrequest at most once an hour, cached
+between ticks. A **401 is not a transient error**: it fails closed for that
+credential group and stops retrying, because 10,000 invalid responses in ten
+minutes risks a temporary IP ban, and an expired-credential bug otherwise retries
+hot every five minutes on every tracked PR.
+
+The whole loop runs under a **lease** held in the serialized store — the same
+Durable Object that holds the records, **not KV** — taken at tick start and
+released at the end. A tick that finds a live lease younger than the 15-minute
+scheduled wall-clock limit exits immediately without writing. Cron gives no
+overlap prevention and no exactly-once guarantee, so without the lease a slow
+tick and its successor can both `PATCH` the digest — leaving the older render in
+place while the change-detection hash records the newer one, which then
+suppresses the correction on every subsequent tick.
+
+A lease is the one value in this design that **requires compare-and-swap**, and
+KV has none: it is eventually consistent, with a write taking up to 60 seconds to
+become visible in other locations. Two overlapping ticks reading a KV lease from
+different points of presence would both see it absent or stale and both proceed,
+producing precisely the poisoned-hash outcome the lease exists to prevent. This
+is the same argument the Key decisions table uses to keep records out of KV; it
+applies with more force here, because a lost record update is recoverable on the
+next tick and a poisoned hash is not. Keeping the lease in the store also avoids
+a mandatory take-and-release KV write on every tick (~576/day) that the
+write-skip cannot elide — on its own most of the free-plan daily write budget.
+
+### Rendering reads the committed state
+
+The serialized store keeps concurrent writes from losing each other, but that
+protects the *record*, not the *render*. Step 1 reads records and step 9 `PATCH`es
+a body built from that snapshot, tens of seconds of network I/O later, so a
+render built at step 1 would overwrite any interactive write that landed in
+between:
+
+> A tick starts at 10:05:00 and reads records. At 10:05:02 Katherine claims
+> `#177` from the digest menu; her handler writes the claim and `PATCH`es, and
+> the row moves to **Being reviewed**. At 10:05:20 the tick `PATCH`es its stale
+> render: `#177` is unclaimed again in its team section and stays that way until
+> 10:10. A second reviewer sees an unclaimed 🔥 row and starts the duplicate
+> review that claiming exists to prevent.
+
+So step 9 **re-reads the records inside the store immediately before rendering**,
+and the read, the render and the hash comparison happen in the same store call
+that commits the tick's own mutations. The record is never stale-written and
+neither is the message.
 
 Claims made through the digest select menu are applied at interaction time and
-appear immediately. Reaction claims carry up to one refresh interval of lag.
-Where a reaction and a menu claim conflict, the **earlier** timestamp wins and
-the superseded claimer is told privately — the person who acted first must not
-lose silently, which was a defect in the first version of this design.
+appear immediately. Reaction claims carry up to one refresh interval of lag, and
+apply **only to messages that produced exactly one record** — a message reading
+"these two need eyes: …/pull/177 …/pull/181" yields two records sharing one
+`messageId`, and a single reaction on it cannot say which PR the reactor meant.
+Claiming both would assert a commitment nobody made, and picking one by
+iteration order is worse. Such messages are skipped by the reaction path; the
+digest menu, which names the row, remains available.
+Where a reaction and a menu claim conflict, **the first claim the store sees
+wins** and a reaction never supersedes an existing claim; the superseded claimer
+is told privately. This is deliberately not "the earlier timestamp wins": the
+reactions endpoint returns a user list with **no per-reaction timestamp**, so a
+reaction can only ever be stamped at detection time, and ordering by that stamp
+would systematically rank a 10:01 reaction behind a 10:03 menu claim — inverting
+the real order in exactly the cases the rule exists to protect. First-write-wins
+is the strongest rule the API can actually support.
 
 ## Data model
 
@@ -333,7 +572,9 @@ does not reach the logic.
 
 What must never happen: a read-modify-write of a shared value from both the cron
 and an interactive handler. A claim applied at 10:04:50 must not be erased by a
-sync that read a stale copy at 10:05:00.
+sync that read a stale copy at 10:05:00 — and, because the digest is the only
+place anyone sees that claim, the same holds for the rendered message body, which
+is why refresh step 9 re-reads before rendering.
 
 Small immutable-ish values (the digest message ID, scan cursors, the cached PRD
 list, `meta:lastSync`) may live in KV, coalesced into as few keys as possible.
@@ -350,8 +591,12 @@ Records:
   lastRequestedAt,              // freshness; updated on re-request
   requestCount,
   claimedBy, claimedAt,         // null when unclaimed
+  lastClaimedBy, claimClearedAt, // survives a stale auto-clear; renders `previously claimed`
+  syncPausedSince,              // set on NOT_FOUND / 401 for this record's repo
   resolvedAt, resolvedBy,       // null while open; retained 30 days
+  resolutionHistory,            // prior {resolvedAt, resolvedBy} pairs, appended on reopen
   title,                        // cached from GitHub for rendering
+  prAuthorLogin,                // GitHub login; self-reviews are not reviews
   isDraft,
   source,                       // "command" | "scanned"
   lastSyncedAt
@@ -359,6 +604,40 @@ Records:
 ```
 
 `owner/repo/number` is the identity used for deduplication.
+
+`lastClaimedBy`/`claimClearedAt` and `syncPausedSince` exist because refresh
+steps 3 and 5 both demand a marker the record had nowhere to store: nulling
+`claimedBy` on a stale auto-clear erases the only evidence that the row was ever
+claimed, which is what `previously claimed` renders from. **A new claim clears
+both**, so a re-claimed row does not render `previously claimed` for the rest of
+its life. `resolutionHistory` is what makes reopening non-destructive; see
+Reopening a resolved record.
+
+Every one of these fields is a latch, and **a latch with no reset is a
+once-per-lifetime latch**. Each therefore names the transition that clears it:
+`claimedBy`/`claimedAt` on resolve or stale-clear; `lastClaimedBy`/
+`claimClearedAt` on a new claim; `syncPausedSince` on the first successful sync
+of that record; `resolvedAt`/`resolvedBy` on reopen.
+
+For a scanned record, `lastRequestedAt` is the **scanned message's** timestamp;
+for a commanded one it is the submission time. `prAuthorLogin` exists so the exit
+condition can discard a PR author's reviews of their own PR without needing a
+Discord-to-GitHub identity map.
+
+Meta state, alongside the digest message ID: `digestBodyHash` (what step 9's
+write-skip compares against), `lastDailyPostDate` (so the daily post fires once a
+day rather than every tick), and `unpinnedReportedAt` (so the unpinned warning is
+reported once rather than every tick, as Failure modes requires).
+`unpinnedReportedAt` is **cleared by any tick that observes the digest pinned** —
+without that reset, a digest unpinned in week 1, reported, and re-pinned would be
+unpinned again in week 6 to total silence, the list invisible while every tick
+reports success.
+
+`syncLease` and `digestBodyHash` live in the **same Durable Object as the
+records**, not in KV: the lease needs an atomic take, and the hash must be
+written by the same tick that wrote the message it describes. Only genuinely
+independent values — the digest message ID, scan cursors, the cached PRD list,
+`meta:lastSync` — are eligible for KV.
 
 ## Claiming and removal
 
@@ -369,8 +648,20 @@ Both live on the digest, because the digest is the one message the bot owns.
   claimed row reports who holds it.
 - **`Resolve ▾`** — removes a row without reviewing it: withdrawn, superseded,
   reviewed in a call, or a link someone pasted conversationally that was never a
-  review request at all. Sets `resolvedAt` with the actor recorded.
+  review request at all. Sets `resolvedAt` with the actor recorded. The same
+  menu offers rows resolved within the last 24 hours as **`Reopen ▾`**, which
+  clears `resolvedAt` (see Reopening a resolved record) — a row resolved by
+  mistake is otherwise unrecoverable.
 - **Unclaim** — selecting a row you already hold releases it.
+
+Every selection is **revalidated against the store before it is applied**.
+Components persist across message edits, so an option list is only as fresh as the
+reader's client: selecting `Resolve` on a row the tick resolved 60 seconds ago
+would overwrite `resolvedBy: "review by Katherine"` with a manual actor,
+destroying the audit trail retention exists to provide. Each option value encodes
+the record's `lastRequestedAt` so staleness is detectable; when the record's state
+no longer matches what the option implied, the handler no-ops and explains why
+ephemerally.
 
 Without `Resolve`, casual links become permanent false rows: someone writing
 "this regressed in #2695" would create an entry nobody can remove until that PR
@@ -383,8 +674,17 @@ earlier design displayed ⚠️ beside the claimer's name in a permanently pinne
 message; that is a public lateness board, and the rational response to it is to
 stop claiming.
 
-Select menus cap at 25 options. Past that, the menus list the oldest 25 open
-rows and say so.
+Select menus cap at 25 options. Past that, both menus are populated from **the
+top 25 rows as the digest ranks them** — team, then urgency — and say so. They
+must not be populated by oldest-first independently of the digest: with 30 open
+rows the two orderings diverge, and they diverge in the worst direction. A 🔥
+Blocking PR requested 90 minutes ago renders first in its team section but is one
+of the newest rows, so an oldest-first menu would omit the single most urgent row
+on the list, leaving it claimable only through the best-effort, budget-shed
+reaction path — while a truncated 🧊 row that nobody can even see still occupies
+a menu slot. The rule is that the visible set and the actionable set are the same
+set: a row dropped by truncation is absent from the menus, and every rendered row
+is actionable.
 
 ## Message scanning
 
@@ -394,8 +694,16 @@ rollout possible, and it stays enabled afterwards.
 
 On each refresh, for each configured channel: read messages newer than
 `scan:<channelId>`, extract allowlisted PR URLs, and create records with
-`source: "scanned"`. On first run, look back 14 days rather than the whole
-channel history.
+`source: "scanned"`. On first run, look back 7 days rather than the whole
+channel history. Reads are **paginated** — see Refresh loop step 6.
+
+A scanned record's `lastRequestedAt` is **the scanned message's timestamp**, not
+the time of the scan. This is what lets a scanned record ever satisfy the exit
+condition: scan time is later than every review the PR already has, so seeding
+from it would make each conversational mention inside the 7-day lookback a
+permanent row that only merging clears. With the message timestamp, the exit
+comparison runs at ingest and a scanned record whose review already happened is
+**born resolved** — it never reaches the digest at all.
 
 Scanned records have no team, urgency, PRD, or note, because nobody supplied
 them. They render in a **Needs triage** section and are otherwise treated
@@ -417,6 +725,10 @@ The lookback on first run is **7 days**, not longer: shadow mode's first digest
 sets the team's impression of whether this list is trustworthy, and a wall of
 resurrected month-old PRs and conversational mentions would set it badly.
 
+A scanned link matching a **resolved** record is ignored rather than reopening
+it — conversational mentions of finished PRs are the common case, and see
+Reopening a resolved record for why the explicit and implicit paths differ here.
+
 Running `/review-request` on an already-scanned PR **upgrades the record in
 place** rather than creating a duplicate: `source` becomes `"command"` and the
 supplied fields are filled in. Identity is `owner/repo/number`, so the bot's own
@@ -432,15 +744,23 @@ request messages are skipped during scanning to avoid double-counting.
   remain listed but stop auto-expiring, and are marked `sync paused`. An
   unreadable link is never a hard failure.
 - **Digest message deleted.** Recreate it, post a short note asking someone to
-  re-pin, and continue.
-- **KV data lost.** Rebuild by reading the bot's own past request messages in the
-  configured channels. This is a documented recovery path, not a normal one.
+  re-pin, and continue. Only the lease-holding tick may recreate it; an
+  interactive handler that gets a 404 skips its immediate rewrite rather than
+  posting a second digest.
+- **Store data lost.** Rebuild by reading the bot's own past request messages in
+  the configured channels, and by re-scanning the lookback window. This is a
+  documented recovery path, not a normal one — and it is why records are retained
+  for 30 days rather than deleted on resolve.
 - **Request message deleted.** The record survives; the digest row stays but
-  loses its link to a message, and claims for it can only come from the button.
+  loses its link to a message. Claiming is unaffected, because the primary claim
+  path is the select menu on the bot's own digest; only the best-effort reaction
+  path depends on the request message existing.
 - **Discord edit fails.** Log and retry on the next tick. Never crash the cron.
 - **The digest is unpinned.** Detected by listing pins each tick. The bot cannot
   re-pin itself, so it reports the problem once — not every tick — and
-  `/review-list` remains available meanwhile.
+  `/review-list` remains available meanwhile. "Once" means once *per unpinning*:
+  `unpinnedReportedAt` is cleared by any tick that sees the digest pinned again,
+  so a second unpinning weeks later is reported like the first.
 - **A tick exceeds its subrequest or CPU budget.** Fail before writing partial
   state, leave `meta:lastSync` untouched so the stale banner appears, and shed
   the reaction-read budget first since it is the only optional work.
@@ -455,11 +775,33 @@ Discord bot permissions, restricted by channel overwrite to the review channels
 plus read access to the PRD forum:
 
 - Send Messages, Embed Links, Read Message History, View Channel.
+- The **Message Content privileged intent**, enabled in the Developer Portal.
+  This is not optional and not a gateway-only concern: without it
+  `GET /channels/{id}/messages` returns `content: ""` for every message the bot
+  did not author, so Message scanning silently extracts zero links and the whole
+  of shadow mode reports an empty list. Self-serve below 100 guilds.
+
+  Startup must assert it, and the assertion must be **falsifiable**. Checking for
+  messages with non-empty `embeds` or `attachments` but empty `content` does not
+  work: the intent gates `content`, `embeds`, `attachments`, `components` and
+  `poll` by the *same* rule, so an ungated fetch returns `content: ""`,
+  `embeds: []` and `attachments: []` together and the precondition never fires.
+  The bot would report "no links found" and run a full sprint of shadow mode on
+  an empty list — the exact indistinguishability the assertion was added to
+  remove. Instead, read the application's own `flags` from
+  `GET /applications/@me` and require `GATEWAY_MESSAGE_CONTENT` (or
+  `GATEWAY_MESSAGE_CONTENT_LIMITED`), failing startup with `INTENT_MISSING` if
+  neither is present. A message the **bot itself authored** is exempt from
+  gating, so it also serves as a positive control alongside a non-self message if
+  a runtime check is wanted.
 - **Not** `PIN_MESSAGES` — the digest is pinned once by hand and thereafter only
   edited, and a bot editing its own message needs no additional permission.
   (Pinning was split out of Manage Messages into its own `PIN_MESSAGES`
-  permission in August 2025, with the route moved to
-  `PUT /channels/{id}/messages/pins/{message.id}`.)
+  permission — announced in 2025 but **effective 12 January 2026** — with the
+  routes moved to `PUT /channels/{id}/messages/pins/{message.id}` for pinning and
+  `GET /channels/{id}/messages/pins` for listing. The older
+  `GET /channels/{id}/pins` is deprecated, so the unpinned check must use the new
+  route.)
 
 The bot must be able to **list pins** (Read Message History) so it can detect
 that its digest has been unpinned rather than editing an invisible message.
@@ -481,8 +823,34 @@ choice worth recording.
 
 ## Hosting constraints
 
-The hosting decision is open pending team input. These constraints apply
-wherever it lands, and were measured against Cloudflare's free plan:
+The hosting decision is **deliberately deferred**: the store sits behind an
+interface `core/` never sees, so the choice reaches one adapter and nothing else.
+It is not deferred out of indecision — it is deferred because the plan can be
+built and most of it verified without knowing the answer.
+
+What the deferral does *not* cover: two of the free plan's ceilings force
+architectural choices rather than configuration, so the plan builds both to the
+stricter shape, which is sound on any host.
+
+- **One store entrypoint call per tick.** Cloudflare counts KV, D1 and Durable
+  Object stub calls against the same 50-per-invocation subrequest ceiling as
+  outbound `fetch`, so per-row store writes both blow the budget and let a tick
+  die *mid-write* — contradicting "fail before writing partial state". The tick
+  therefore does all reads and writes inside one object call (DO-internal
+  `storage` operations do not count), with a stated invariant of **at most two
+  store subrequests per tick regardless of record count**. This is better design
+  on a conventional host too.
+- **The immediate digest rewrite is flagged.** The 10 ms CPU limit applies to
+  `/interactions`, not only to `scheduled()`, and the modal-submit path does
+  signature verification, JSON parsing, a full render and an embed
+  serialization — with `waitUntil` work drawing from the same budget. Exceeding it
+  shows the user a spinner that never resolves and surfaces no error. With the
+  flag off the handler writes and returns; the next tick renders.
+
+The earlier estimate of ~45 tracked PRs per tick counted only GitHub and Discord
+calls and is therefore optimistic; with the single-store-call invariant it is
+roughly recovered. These constraints were measured against Cloudflare's free
+plan:
 
 - **CPU per scheduled invocation: 10 ms on the free plan** (30 s on paid).
   Network waiting does not count, but parsing a chunked GraphQL response,
@@ -493,7 +861,14 @@ wherever it lands, and were measured against Cloudflare's free plan:
   popular. The reaction-read budget in refresh step 8 exists for this reason.
 - **KV: 1,000 writes/day on the free plan**, each key counted separately, and one
   write per second per key. 288 cron ticks plus per-channel cursors leaves little
-  headroom, which is why writes are skipped when nothing changed.
+  headroom, which is why writes are skipped when nothing changed — and why the
+  sync lease lives in the Durable Object rather than KV, since a lease is taken
+  and released every tick regardless of whether anything changed and the
+  write-skip cannot elide it. Durable Object writes are billed separately and are
+  not charged against this ceiling.
+- **KV is eventually consistent** — up to 60 seconds for a write to be visible
+  in other locations — and offers no atomic operations. Nothing that requires
+  read-modify-write or mutual exclusion may live there; see Data model.
 - **Six simultaneous outbound connections**, so parallel fan-out serialises into
   waves of six. Harmless against a 15-minute wall clock, but do not expect
   parallelism to help.
@@ -507,7 +882,10 @@ wherever it lands, and were measured against Cloudflare's free plan:
 
 If the answer is a conventional container host, the CPU and subrequest ceilings
 disappear and the store becomes an ordinary table; the module seams are drawn so
-that this changes one adapter.
+that this changes one adapter, and the immediate-rewrite flag turns on. If the
+answer is Cloudflare, the **paid plan** is the recommendation — CPU 10 ms → 30 s
+and subrequests 50 → 10,000 for $5/month lifts both ceilings above anything this
+design approaches, and is cheaper than engineering around them.
 
 ## Monitoring
 
@@ -517,10 +895,16 @@ nothing so far detects it.
 - `meta:lastSync` records the last successful tick. If it is older than 30
   minutes, the digest renders an explicit **stale** banner rather than a
   relative timestamp a reader has to interpret.
-- A health endpoint reports last sync, open record count, and credential expiry
-  dates, so a silent cron failure is discoverable without reading the channel.
-- Credential expiry is logged at startup. A fine-grained token expiring
-  mid-sprint with no warning is a predictable outage.
+- A health endpoint reports last sync, open record count, and per-credential
+  health (below), so a silent cron failure is discoverable without reading the
+  channel.
+- Credential health is reported per credential, because the two age differently.
+  For the **GitHub App**: private key age and installation status — an installation
+  token expires hourly and is minted on demand, so its expiry is not the signal
+  that matters. For the **machine token**: an expiry date. A fine-grained token
+  expiring mid-sprint with no warning is a predictable outage.
+- A 401 from either credential is reported and **fails closed** for that
+  credential group rather than retrying. See Refresh loop.
 
 ## `/review-list`
 
@@ -533,21 +917,67 @@ The pure core carries the test weight, since it holds everything that can be
 subtly wrong:
 
 - **Digest rendering** — snapshot tests: each team section, empty state, stale
-  claims, character-limit truncation, omitted empty teams.
+  claims, character-limit truncation, omitted empty teams. Snapshots must be
+  **time-independent**: a suite whose snapshots churn when the clock crosses an
+  hour boundary is the same defect as a body that churns, and would hide it.
+- **Reopening** — a re-request on a resolved record clears `resolvedAt` and the
+  row reappears in the next digest; the prior resolution is preserved in
+  `resolutionHistory`; `firstRequestedAt` is unchanged; a `Reopen ▾` selection
+  does the same; a **scanned** link matching a resolved record does *not* reopen
+  it. This is the regression test for the tombstone defect: reviewed →
+  re-requested → listed is the design's primary workflow and must be asserted
+  end to end, not per-step.
+- **Latch resets** — for each of `resolvedAt`, `unpinnedReportedAt`,
+  `lastClaimedBy`/`claimClearedAt` and `syncPausedSince`, assert both the set and
+  the clear. A latch tested only in the set direction is how a once-only warning
+  becomes once-per-lifetime.
+- **Lost-update ordering** — a claim committed after a tick reads records but
+  before it `PATCH`es must survive the tick's write. Drive it by interleaving the
+  handler and the tick against the store, not by mocking the store away; the bug
+  this catches lives precisely in the seam a mock would remove.
+- **Menu population** — with more than 25 open rows, the menus contain exactly
+  the rows the digest rendered, highest-urgency included, and no truncated row.
 - **State transitions** — table-driven: for each combination of `state`,
-  `merged`, `reviewDecision`, and claim status, assert whether the record
-  survives and which section it renders into.
+  `merged`, newest-review-`submittedAt` relative to `lastRequestedAt`, and claim
+  status, assert whether the record survives and which section it renders into.
+  **Not** `reviewDecision` — the Exit condition forbids it and the refresh loop
+  never requests it, so including it doubles the matrix with an input that has no
+  code path.
 - **URL parsing** — valid PR URLs, `/files` and `#discussion` suffixes, issue
   URLs, non-GitHub URLs, allowlist rejection.
-- **Claim resolution** — menu and reaction producing identical state; the
-  earlier timestamp wins across both paths; unclaim; stale auto-clear returning a
-  row to its team section.
+- **Claim resolution** — menu and reaction producing identical state; the first
+  claim the store sees wins and a reaction never supersedes an existing claim;
+  unclaim; stale auto-clear returning a row to its team section marked
+  `previously claimed`; a re-claim clearing `previously claimed`; and a reaction
+  on a message that produced two records claiming **neither**.
 - **Exit condition** — a `COMMENTED` review resolves a record; a review older
-  than `lastRequestedAt` does not; a null-`reviewDecision` PR is unaffected
-  (regression test for the original defect); merged and closed both resolve.
+  than `lastRequestedAt` does not; a PR whose `reviewDecision` is null is
+  unaffected (regression test for the original defect — the field is not read at
+  all); merged and closed both resolve.
 - **Partial GraphQL failures** — a batch with one `NOT_FOUND` alias marks that
   one `sync paused` and leaves every other record untouched.
 - **Credential routing** — owner maps to the expected credential.
+- **Review author filtering** — a bot review (both `[bot]` login and `Bot`
+  `__typename`) does not resolve a record; a review by the PR's own author does
+  not; a review with a null `submittedAt` does not; a review by anyone else does.
+  Each needs its own row, because each closes a distinct permanent-drop loop.
+- **Scanned-record seeding** — a scanned message about a PR reviewed last week
+  produces a record that is born resolved and never renders; a scanned message
+  about an unreviewed PR renders in **Needs triage**.
+- **Stale banner renders on sync failure** — with step 2 failing, step 9 still
+  produces a body, and that body carries the banner. This is the regression test
+  for a banner that could previously never fire.
+- **Scan pagination** — a channel with 250 new messages yields every link, and a
+  tick that hits the page cap advances the cursor only to the oldest fully
+  processed message.
+- **Menu revalidation** — a `Resolve` selection against a record the tick already
+  resolved no-ops and preserves the original `resolvedBy`.
+- **Truncation with null urgency** — scanned rows rank below 🧊, and a
+  shadow-mode list of 40 scanned rows truncates deterministically.
+- **Daily post** — fires once per day when rows are open, not at all when none
+  are, and not twice if two ticks straddle the configured time.
+- **Recently cleared** — a row resolved within the window renders with the right
+  actor and verb; one resolved outside it does not render.
 
 Adapters are exercised against a stubbed `fetch`, asserting request shape rather
 than live behavior. Vitest with **`@cloudflare/vitest-plugin`** (renamed from
@@ -572,12 +1002,53 @@ Two additions that catch the failures unit tests cannot:
   end-to-end exercise against real PRs with zero channel side effects.
 
 The state-transition table test is exhaustive rather than representative: every
-combination of open/merged/closed, review decision, claimed/unclaimed, and draft
-status, asserting both survival and rendered section. That matrix is the product.
+combination of open/merged/closed, newest review newer/older/absent relative to
+`lastRequestedAt`, claimed/unclaimed, draft status, and **resolved/open** — the
+last dimension being the one whose omission hid the tombstone defect — asserting
+both survival and rendered section. That matrix is the product.
 
 Manual smoke test before rollout: a scratch Discord server with
 `wrangler dev --remote`, covering the full path — command, modal, post, button
-claim, reaction claim, and auto-removal after a real review.
+claim, reaction claim, and auto-removal after a real review, followed by a
+re-request on that same now-resolved PR to confirm it returns to the digest.
+Startup must also be exercised **once with the Message Content intent disabled**,
+asserting that it fails with `INTENT_MISSING` rather than reporting an empty
+scan.
+
+## Preview harness
+
+Every render decision in this document was settled against a picture before any
+credential existed, and one of them — the compact `3d` age form — turned out to be
+impossible. That is the argument for building the harness early rather than after
+the adapters.
+
+It is nearly free, because the seams are already drawn: `core/` is pure, and the
+digest is a pure function of `(records, lastSync, now)`. The harness is simply a
+second consumer of that function, alongside the snapshot tests, and shares their
+fixtures — so a render change that looks right in the preview and breaks a
+snapshot fails in the same commit.
+
+Three tiers, each answering a different question:
+
+1. **Local HTML harness** (`npm run preview`) — imports `core/render`, feeds it
+   the fixture record sets, and paints the output in Discord-accurate CSS.
+   Fixtures are the Testing section's scenarios, which have to exist anyway:
+   every team section populated, empty state, **Needs triage** as shadow mode
+   actually looks, truncation past capacity, a stale claim, the stale banner, a
+   🔥 row with its reason, **Recently cleared**, and the daily post. Also static
+   mocks of the modal and the request message for label and hierarchy review.
+   Zero Discord setup, zero credentials. This is where layout is iterated.
+2. **Embed JSON dump** — the same command writes the raw embed payload. Pasted
+   into a third-party embed renderer it is drawn by Discord's own rules, which
+   catches what a CSS mock gets wrong: real wrapping, the real character budget,
+   timestamp substitution. Still no bot and no server.
+3. **Scratch server** — rollout stage 1. The only tier that can answer behavior:
+   modal submission, menu selection, `<t:…:R>` resolving to a real relative time,
+   `<#threadId>` resolving to a thread name, emoji size on a phone.
+
+The split matters because tier 1 is persuasive and partial. It settles layout and
+information hierarchy; it cannot settle anything about how Discord renders. Treat
+every character count it produces as an estimate until tier 2 confirms it.
 
 ## Rollout
 
@@ -601,6 +1072,15 @@ Staged, so the list has to earn trust before anyone is asked to change habits.
    listed 30 minutes after a review landed, and every hand-posted PR that never
    appeared. **Two or more of either means fix before proceeding.** Jolie checks
    the log daily; without a named observer this stage measures nothing.
+
+   That question is an engineering question, so every answer to it is actionable
+   as a bug fix and none is "stop". One cheap addition makes the stage able to
+   fail in a way that matters: **at sprint end, ask two teammates cold what the
+   oldest thing waiting for review is.** If neither can answer, the delivery
+   problem is real and the daily post must be working before the command is
+   enabled. (A pre-code round of interviews was considered and deliberately
+   skipped — the team's stated frustration is taken as sufficient evidence that
+   the problem exists.)
 3. **Command enabled.** Manual posting keeps working via scanning, so adoption
    can be gradual and nothing breaks for anyone who forgets.
 4. **Command becomes the norm.** Scanning remains as the safety net.
@@ -615,9 +1095,15 @@ Docs live in the repo and follow the conventions the team already uses.
 
 - **README.md** — usable in 30 seconds: what the pinned list is, the command,
   the claim button, the `:code_review:` reaction. Written for a teammate, not a
-  maintainer.
+  maintainer. It also carries a short **data policy**: what the store retains
+  (request and claim timestamps, request counts, resolution history), for how long
+  (30 days after resolution), and what it will not be used for. The store is one
+  query from a per-person latency leaderboard whether or not v1 builds one, so
+  saying so in writing is what makes "no review-time analytics" a promise about
+  the data rather than about the roadmap.
 - **docs/architecture.md** — the two entry points, the three module seams, and
-  the data flow from command to KV to digest. Enough that a newcomer can find
+  the data flow from command through the store to the digest. Enough that a
+  newcomer can find
   where a given behavior lives.
 - **docs/setup.md** — the runbook below, kept current with the real deployment.
 - **docs/operations.md** — what to do when something breaks: digest message
@@ -643,12 +1129,104 @@ encode team decisions that are not self-evident from the code.
 6. Set Worker secrets; deploy; set the cron trigger.
 7. Deploy in shadow mode, with the command not yet registered. Wait for the first
    refresh to post the digest, then pin that message by hand.
-8. Register the guild-scoped command only when moving past shadow mode.
+8. Register `/review-list` at deploy. Register `/review-request` only when
+   moving past shadow mode. Registering the read-only command straight away is
+   what makes it a real mitigation for a deleted or unpinned digest — during
+   shadow mode the hand-pin is newest and most likely to be lost, and that is
+   precisely when Failure modes claims `/review-list` is available.
+
+## Decision log
+
+Three rounds of independent adversarial review (platform correctness, product
+behavior, scope and internal consistency) raised nine questions that changed the
+design. All nine are decided. Corrections with one obviously right answer are
+applied inline throughout; this section records the answers that were judgement
+calls, and why — so a reader who disagrees knows what to argue with.
+
+**1. Nothing delivered the digest.** Discord fires a pin notification once, at the
+hand-pin; every later `PATCH` is silent. Meanwhile v1 retires the bump message,
+the only part of the current process that *arrives*. Since tracking changes
+behavior only if tracked state reaches a human eye, "no DM nudges" was removing
+the delivery layer, not deferring a nicety. **Decided: one conditional daily
+channel post** — counts, oldest age, jump link, only when something is waiting.
+It names no individual, so it is not the per-person nudge the non-goals exclude.
+
+**2. A scanned record could never satisfy the exit condition.** Seeding
+`lastRequestedAt` from scan time made it later than every review the PR already
+had. **Decided: seed from the scanned message's timestamp**, and resolve at
+ingest — a scanned record whose review already happened is born resolved. See
+Exit condition.
+
+**3. Any bot review resolved the row before a human looked.** "Any review state
+counts" carried no author filter, so Copilot at 10:01 cleared a 10:00 request, and
+a re-request was re-dropped within one tick. **Decided: filter bot authors and the
+PR's own author, and ignore null `submittedAt`.** Matching on the PR author rather
+than the Discord requester avoids needing a Discord-to-GitHub identity map. See
+Exit condition.
+
+**4. The free plan was not viable as counted.** Store calls are subrequests, and
+the 10 ms CPU limit applies to `/interactions` too. **Decided: defer the hosting
+choice, and build to the stricter shape regardless** — one store entrypoint call
+per tick with a stated two-subrequest invariant, and the immediate digest rewrite
+behind a flag. Both are better design on any host. If the answer is Cloudflare,
+the paid plan is the recommendation. See Hosting constraints.
+
+**5. The stale banner could never render.** The `PATCH` was downstream of the
+GitHub sync, so a tick that failed at sync never reached the renderer and readers
+kept seeing a normal-looking list — the one failure Monitoring names as most
+important to avoid. **Decided: the digest is a pure function of
+`(records, lastSync, now)`**, and step 9 runs even when step 2 failed. A sync
+failure aborts record mutation, not rendering.
+
+**6. Mechanisms with no stated mechanism.** All five now have one: scan
+pagination; hourly App-token minting, budgeted and failing closed on 401; menu
+selections revalidated against the store with `lastRequestedAt` encoded in the
+option value; null urgency ranked below 🧊 for truncation; PENDING reviews
+ignored.
+
+**7. The mechanisms that had to survive contact with people.** Five findings,
+five decisions. The 🔥 reason **renders inline in the digest** — collected and
+never displayed, it was ceremonial. 🧊 becomes **This week**, a commitment rather
+than a request not to be reviewed. The **claim age comes off the render**, since
+`Ira · 4d` beside a name in a permanent message was the lateness board the ⚠️ fix
+had only relabelled. **`re-asked` comes off** too, and the README gains a data
+policy. `Resolve` gains a **Recently cleared** line lasting an hour. The fifth
+finding — that claiming is private cost for public benefit, so **Being reviewed**
+may sit near-empty — is **accepted as a risk rather than fixed.** It is a
+prediction about people, and shadow mode plus stage 3 will show whether it holds;
+if the section is empty after a sprint of the command being live, claiming is the
+first thing to cut.
+
+**8. Scope.** Two reviewers independently found claiming, the PRD dropdown and
+its thread cache, `note`, and `Resolve ▾` severable, and noted that duplicate
+review is not among the problems Problem names. **Decided: build v1 as specced,
+nothing severed** — with the honest note that each severable piece is now carrying
+a risk rather than a requirement, and #7's prediction is the leading indicator for
+the largest of them. The related finding *was* acted on: the rationale rejecting
+GitHub Actions has been rewritten, because "a workflow in every repo" was false
+and the separation of opening from requesting is the argument that survives.
+
+**9. Shadow mode could not fail in a way that stopped the project.** **Decided:
+add the cold-read test at sprint end** — ask two teammates what the oldest thing
+waiting is; if neither can answer, the daily post must be working before the
+command is enabled. The proposed pre-code interview round was **deliberately
+skipped**: the team's stated frustration is taken as sufficient evidence that the
+problem is real. This is a recorded risk, not an oversight — if the cold-read test
+fails, this decision is the first place to look.
+
+**10. `3d` was not a shape `<t:epoch:R>` can produce.** Found by the render proof
+described under Preview harness, not by review. The digest example used compact
+ages while a separate rule required relative timestamps; Discord has no compact
+variant, so the two could not both hold. **Decided: long form**, keeping the
+write-skip and accepting ~20–30 characters a row and roughly 20 rows of capacity.
+The same exercise settled the **open-row count** definition and the
+**Recently cleared** window.
 
 ## Open operational items
 
-- **Hosting** — pending team input. See Hosting constraints. This is the only
-  open item that blocks implementation, and it affects one adapter.
+- **Hosting** — deferred by decision, not pending. The plan builds to the
+  stricter of the candidate shapes, so this no longer blocks implementation; it
+  affects one adapter and one config flag. See Hosting constraints.
 - **A second owner.** Secrets, the Cloudflare (or equivalent) account, and
   `PIN_MESSAGES` in Discord must be held by at least two people, named in
   `docs/operations.md`. Otherwise the tool dies the first time its author is on
