@@ -6,7 +6,7 @@
 
 **Architecture:** One worker process with two entry points (`POST /interactions`, `scheduled()`) over three module seams: a pure `core/` holding every rule that can be subtly wrong, thin `discord/` and `github/` adapters stubbed with a fake `fetch` in tests, and a `store/` adapter behind a command interface so the deferred hosting choice reaches one file. The digest is a pure function of `(records, lastSync, now)`, which is what lets a preview harness render every scenario before a credential exists and what lets the stale banner fire when a sync fails.
 
-**Tech Stack:** TypeScript 7 (strict), Cloudflare Workers + Durable Objects, Wrangler 4.127.1, Vitest 4.1 with `@cloudflare/vitest-plugin` 1.1.2, Istanbul coverage. No runtime dependencies — Ed25519 verification, RS256 JWT signing and GraphQL all use Web Crypto and `fetch` directly.
+**Tech Stack:** TypeScript 6.0.3 (strict), Cloudflare Workers + Durable Objects, Wrangler 4.127.1, Vitest 4.1 with `@cloudflare/vitest-plugin` 1.1.2, Istanbul coverage. No runtime dependencies — Ed25519 verification, RS256 JWT signing and GraphQL all use Web Crypto and `fetch` directly.
 
 **Spec:** `docs/superpowers/specs/2026-08-26-pr-review-bot-design.md`
 
@@ -108,16 +108,26 @@ npm init -y
 npm pkg set name="pr-review-bot" private=true type="module"
 npm pkg delete main
 npm install --save-dev \
-  typescript@7.0.2 \
+  typescript@6.0.3 \
   vitest@4.1.11 \
   @cloudflare/vitest-plugin@1.1.2 \
   @cloudflare/workers-types@5.20260831.1 \
   @vitest/coverage-istanbul@4.1.11 \
   wrangler@4.127.1 \
-  eslint@9 typescript-eslint@8
+  eslint@9 typescript-eslint@8.69.0
 ```
 
 There are **no runtime dependencies** and there should never be one added without an ADR. Ed25519, RS256 and hashing all come from Web Crypto.
+
+**Why TypeScript 6.0.3 and not 7.x:** `typescript-eslint` declares
+`typescript: ">=4.8.4 <6.1.0"` as a peer and its latest line (8.69.0) is the only
+8.x line, so no published version supports TS 7 — installing both is a hard
+`ERESOLVE`. ESLint cannot parse `.ts` at all without `@typescript-eslint/parser`,
+and the lint layer is load-bearing here: the `no-restricted-globals` rule on
+`Date` is what mechanically enforces the Global Constraint that `core/` has no
+I/O. Nothing in this plan needs a TS 7 feature — `noUncheckedIndexedAccess`,
+`exactOptionalPropertyTypes`, `verbatimModuleSyntax` and import attributes all
+predate TS 6. Revisit when `typescript-eslint` supports TS 7.
 
 - [ ] **Step 2: Add scripts**
 
@@ -225,6 +235,9 @@ export interface Config {
   recentlyClearedMs: number;
   staleBannerMs: number;
   retentionMs: number;
+  /** How long after resolving a row the digest offers it as a reopen option, and
+   *  the handler accepts a reopen selection. One number, read by both — see Task 18. */
+  reopenWindowMs: number;
   scanLookbackMs: number;
   dailyPostHourLocal: number;
   dailyPostTimeZone: string;
@@ -261,6 +274,7 @@ export const config: Config = {
   recentlyClearedMs: 1 * HOUR,
   staleBannerMs: 30 * MINUTE,
   retentionMs: 30 * DAY,
+  reopenWindowMs: 24 * HOUR,
   scanLookbackMs: 7 * DAY,
   dailyPostHourLocal: 9,
   dailyPostTimeZone: "America/Chicago",
@@ -486,8 +500,27 @@ describe("extractPrUrls", () => {
     expect(extractPrUrls("no links here")).toEqual([]);
   });
 
-  it("strips trailing markdown and punctuation around a link", () => {
+  it("ignores surrounding parentheses", () => {
+    // Proves the URL_CANDIDATE character class excludes ( and ) — NOT the
+    // trailing-punctuation strip, which the paren never reaches.
     expect(extractPrUrls("(https://github.com/paranext/paranext-core/pull/177)")).toEqual([
+      { owner: "paranext", repo: "paranext-core", number: 177 },
+    ]);
+  });
+
+  it.each([
+    ["a sentence-ending period", "see https://github.com/paranext/paranext-core/pull/177."],
+    ["a comma in a list", "https://github.com/paranext/paranext-core/pull/177, and the other one"],
+    ["a semicolon", "https://github.com/paranext/paranext-core/pull/177; thanks"],
+    ["a colon", "https://github.com/paranext/paranext-core/pull/177: needs eyes"],
+    ["an exclamation mark", "please look at https://github.com/paranext/paranext-core/pull/177!"],
+    ["a question mark", "can anyone review https://github.com/paranext/paranext-core/pull/177?"],
+  ])("strips %s abutting the link", (_label, text) => {
+    // These are the cases that actually exercise the trailing-punctuation
+    // strip: URL_CANDIDATE captures the punctuation, then it is removed.
+    // A URL ending a sentence is the commonest shape a link takes in chat, and
+    // a link missed here is a row missing from the digest during shadow mode.
+    expect(extractPrUrls(text)).toEqual([
       { owner: "paranext", repo: "paranext-core", number: 177 },
     ]);
   });
@@ -1063,7 +1096,16 @@ describe("countsAsReview", () => {
   });
 
   it("does not count a PENDING review with a null submittedAt", () => {
+    // `since: -1` is load-bearing. With `since: T0`, deleting the
+    // `submittedAt === null` guard leaves `null <= T0`, which JS coerces to
+    // `0 <= T0` — true — so the function still returns false and this test
+    // stays green with the guard gone. At `since: -1`, coerced 0 cannot
+    // satisfy the comparison, so the null guard is the only rejecter.
+    expect(countsAsReview(review({ submittedAt: null, state: "PENDING" }), "jolie", -1)).toBe(false);
     expect(countsAsReview(review({ submittedAt: null, state: "PENDING" }), "jolie", T0)).toBe(false);
+    // Positive control: proves the case above is not passing merely because
+    // everything fails at this `since`.
+    expect(countsAsReview(review({ submittedAt: 1 }), "jolie", -1)).toBe(true);
   });
 
   it("does not count a review whose author login ends in [bot]", () => {
@@ -1139,9 +1181,23 @@ describe("exitVerdict", () => {
     expect(v).toEqual({ resolve: true, resolvedBy: "review by katherine" });
   });
 
-  it("is unaffected by reviewDecision — the field is never read", () => {
-    const withDecision = { ...snapshot(), reviewDecision: null } as PrSnapshot;
-    expect(exitVerdict(record(), withDecision)).toEqual({ resolve: false });
+  it("is unaffected by reviewDecision even when it implies the opposite verdict", () => {
+    // Setting the field to null while `reviews` is empty asserts nothing: the
+    // empty list alone forces { resolve: false }, so that version passes for
+    // ANY implementation, including one that reads the field. Both assertions
+    // below point the field's hypothetical influence opposite to the expected
+    // verdict, so a reader of it fails.
+    const approved = { ...snapshot(), reviewDecision: "APPROVED" } as PrSnapshot;
+    expect(exitVerdict(record(), approved)).toEqual({ resolve: false });
+
+    const required = {
+      ...snapshot({ reviews: [review()] }),
+      reviewDecision: "REVIEW_REQUIRED",
+    } as PrSnapshot;
+    expect(exitVerdict(record(), required)).toEqual({
+      resolve: true,
+      resolvedBy: "review by katherine",
+    });
   });
 
   it("uses the snapshot's author when the record has none", () => {
@@ -2293,8 +2349,18 @@ describe("renderDigest — time independence", () => {
   it("produces the same body hash across an hour boundary", () => {
     // This is the property the whole write-skip depends on: with a dozen rows a
     // computed age would change the body on nearly every tick.
+    // lastSync MUST advance with now. Holding it fixed while advancing now by an
+    // hour puts the gap at 61 minutes — past staleBannerMs (30) — so `b` renders
+    // the stale banner and `a` does not, and the sibling test below enforces
+    // exactly that difference. The original fixture could not pass under any
+    // correct implementation.
     const a = renderDigest({ records, lastSync: NOW - MINUTE, now: NOW, config: baseConfig });
-    const b = renderDigest({ records, lastSync: NOW - MINUTE, now: NOW + 61 * MINUTE - MINUTE, config: baseConfig });
+    const b = renderDigest({
+      records,
+      lastSync: NOW + 60 * MINUTE - MINUTE,
+      now: NOW + 60 * MINUTE,
+      config: baseConfig,
+    });
     expect(a.bodyHash).toBe(b.bodyHash);
   });
 
@@ -2477,13 +2543,18 @@ function buildBlocks(rows: Row[], config: Config): { open: string[]; claimed: st
   return { open, claimed };
 }
 
-function joinWithinLimit(parts: string[]): { fitted: string[]; overflow: string[] } {
+/**
+ * Packs parts up to `limit`, returning what did not fit. The split is a clean
+ * prefix/suffix: once one part overflows, every later part overflows too, or
+ * content would be reordered across embeds.
+ */
+function joinWithinLimit(parts: string[], limit: number): { fitted: string[]; overflow: string[] } {
   const fitted: string[] = [];
   const overflow: string[] = [];
   let length = 0;
   for (const part of parts) {
     const cost = part.length + 1;
-    if (length + cost > EMBED_DESCRIPTION_LIMIT) {
+    if (overflow.length > 0 || length + cost > limit) {
       overflow.push(part);
     } else {
       fitted.push(part);
@@ -2493,24 +2564,73 @@ function joinWithinLimit(parts: string[]): { fitted: string[]; overflow: string[
   return { fitted, overflow };
 }
 
+function overflowNotice(count: number): string {
+  return `_…and ${count} more not shown here (message capacity reached). Use \`/review-list\` to see everything._`;
+}
+
+/**
+ * Derived, never hand-counted. A literal drifts the moment anyone rewords the
+ * notice, and a reserve short by even a few characters puts the emitted
+ * description past the cap — which is a 400, a failed retry, and a frozen pin.
+ */
+const OVERFLOW_NOTICE_RESERVE = overflowNotice(999_999).length;
+
+/**
+ * Enforces BOTH Discord bounds. joinWithinLimit alone guards 4096 per embed, so
+ * two embeds could total 8192 — over the 6000-across-embeds cap. The second
+ * embed's budget is therefore whatever the first left unused, and anything still
+ * unrenderable is reported rather than dropped: under-reporting the list is the
+ * one direction the design forbids.
+ */
+function fitSecondEmbed(parts: string[], firstLength: number): string | null {
+  const budget = Math.min(EMBED_DESCRIPTION_LIMIT, EMBED_TOTAL_LIMIT - firstLength);
+  if (budget <= 0) return null;
+
+  const full = joinWithinLimit(parts, budget);
+  if (full.overflow.length === 0) return full.fitted.join("\n");
+
+  const contentCap = budget - OVERFLOW_NOTICE_RESERVE - 1;
+  if (contentCap <= 0) return overflowNotice(parts.length).slice(0, budget);
+
+  const constrained = joinWithinLimit(parts, contentCap);
+  return [...constrained.fitted, overflowNotice(constrained.overflow.length)].join("\n");
+}
+
 export function renderDigest(input: DigestInput): DigestRender {
   const { records, lastSync, now, config } = input;
   const maxRows = input.maxRows ?? DEFAULT_MAX_ROWS;
 
   const allRows = rankRows(records, config);
-  const { rendered, droppedCount } = truncateRows(allRows, maxRows);
-  const openCount = allRows.length;
+  // Claimed rows bypass truncation. The spec requires that a claim move to a
+  // section rather than off the list — "an abandoned claim stays visible
+  // instead of silently vanishing" — so applying the row cap across all rows
+  // would let a claim disappear once the backlog exceeded it. droppedCount
+  // therefore counts backlog rows only.
+  const claimedRows = allRows.filter((r) => r.section.kind === "claimed");
+  const openRows = allRows.filter((r) => r.section.kind !== "claimed");
+  const truncated = truncateRows(openRows, maxRows);
+  const rendered = [...truncated.rendered, ...claimedRows];
+  const droppedCount = truncated.droppedCount;
+  const openCount = openRows.length;
 
   const stale = isStale(lastSync, now, config.staleBannerMs);
 
-  const header = stale
-    ? `⚠️ **Not syncing.** Last successful sync ${lastSync === null ? "never" : relTs(lastSync)}. Rows below may be out of date.`
-    : `**Needs review** · ${openCount === 0 ? "nothing waiting 🎉" : `${openCount} open`} · updated ${relTs(now)}`;
+  const openCountText = openCount === 0 ? "nothing waiting 🎉" : `${openCount} open`;
+  const freshSummary = `**Needs review** · ${openCountText}`;
+  const staleBanner = `⚠️ **Not syncing.** Last successful sync ${lastSync === null ? "never" : relTs(lastSync)}. Rows below may be out of date.`;
 
-  // The header when stale must still say how many are open.
+  // The tick-rounded stamp keeps the body stable within one refresh interval.
+  // Cross-tick stability comes from excluding it from the hash — see bodyHash.
+  const tickStamp = Math.floor(now / config.refreshIntervalMs) * config.refreshIntervalMs;
+
+  // When stale, the banner replaces the `updated` line rather than sitting beside
+  // it, so a reader never has to do the subtraction — but the open count survives.
   const headerLines = stale
-    ? [header, `**Needs review** · ${openCount === 0 ? "nothing waiting 🎉" : `${openCount} open`}`]
-    : [header];
+    ? [staleBanner, freshSummary]
+    : [`${freshSummary} · updated ${relTs(tickStamp)}`];
+
+  // Identical to headerLines except the fresh case drops the `updated` suffix.
+  const hashHeaderLines = stale ? headerLines : [freshSummary];
 
   const { open, claimed } = buildBlocks(rendered, config);
 
@@ -2519,22 +2639,27 @@ export function renderDigest(input: DigestInput): DigestRender {
     .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
     .slice(0, 5);
 
-  const primary: string[] = [...headerLines, ...open];
-  if (droppedCount > 0) {
-    primary.push(`_…and ${droppedCount} more. Use \`/review-list\` to see everything._`);
-  }
+  const droppedLine: string[] =
+    droppedCount > 0
+      ? [`_…and ${droppedCount} more. Use \`/review-list\` to see everything._`]
+      : [];
 
   const trailing: string[] = [];
   if (claimed.length > 0) trailing.push(`**Being reviewed** (${claimed.length})`, ...claimed);
   if (cleared.length > 0) trailing.push("Recently cleared", ...cleared.map(renderClearedLine));
 
-  const first = joinWithinLimit([...primary, ...trailing]);
-  const embeds: DigestEmbed[] = [
-    { color: stale ? COLOR_STALE : COLOR_NORMAL, description: first.fitted.join("\n") },
-  ];
+  // Two parallel lists built from the SAME pieces: `primary` is sent, `hashParts`
+  // is hashed. They differ only in the header, and only in the fresh case.
+  const primary: string[] = [...headerLines, ...open, ...droppedLine];
+  const hashParts: string[] = [...hashHeaderLines, ...open, ...droppedLine, ...trailing];
+
+  const color = stale ? COLOR_STALE : COLOR_NORMAL;
+  const first = joinWithinLimit([...primary, ...trailing], EMBED_DESCRIPTION_LIMIT);
+  const firstBody = first.fitted.join("\n");
+  const embeds: DigestEmbed[] = [{ color, description: firstBody }];
   if (first.overflow.length > 0) {
-    const second = joinWithinLimit(first.overflow);
-    embeds.push({ color: stale ? COLOR_STALE : COLOR_NORMAL, description: second.fitted.join("\n") });
+    const secondBody = fitSecondEmbed(first.overflow, firstBody.length);
+    if (secondBody !== null) embeds.push({ color, description: secondBody });
   }
 
   // No components at all when there is nothing to act on: a String Select with an
@@ -2559,7 +2684,16 @@ export function renderDigest(input: DigestInput): DigestRender {
   return {
     embeds,
     components,
-    bodyHash: stableHash(embeds.map((e) => e.description).join("\u0000")),
+    // The hash EXCLUDES the fresh header's `· updated <t:…:R>` suffix, which the
+    // sent embeds still carry. Rounding that stamp to the tick boundary stops
+    // sub-tick churn but not cross-tick churn: consecutive ticks are exactly one
+    // refreshIntervalMs apart, so the rounded bucket differs on every tick and
+    // hashing it would force ~288 edits a day on an idle team. Excluding it makes
+    // "updated N ago" mean "last actually edited N ago", which is true and which
+    // Discord renders live. The stale banner stays inside the hash — it derives
+    // from lastSync, real state rather than wall-clock, and it is the
+    // trust-critical signal.
+    bodyHash: stableHash(hashParts.join("\u0000")),
     openCount,
     renderedCount: rendered.length,
     droppedCount,
@@ -2574,20 +2708,15 @@ Expected: PASS. The `-u` writes the snapshot on first run; inspect
 `tests/core/render/__snapshots__/digest.test.ts.snap` by eye and confirm it
 contains no absolute timestamps in computed form, only `<t:…:R>` tokens.
 
-- [ ] **Step 5: Verify the header's own timestamp does not defeat the write-skip**
+- [ ] **Step 5: Pin the write-skip against both kinds of churn**
 
-`relTs(now)` in the header changes every second, which would make the body change on every tick — exactly the churn this design forbids. Fix it by rounding the header's timestamp to the tick boundary:
+Two separate failures can make the body vary with wall-clock time, and the Step 3
+code above already guards both. These tests are what keep it that way.
 
-```ts
-// in renderDigest, replace `relTs(now)` in the non-stale header with:
-const tickStamp = Math.floor(now / config.refreshIntervalMs) * config.refreshIntervalMs;
-// ...then use relTs(tickStamp)
-```
-
-Add the regression test to `tests/core/render/digest.test.ts`:
+**Sub-tick churn** — a raw `relTs(now)` changes every second:
 
 ```ts
-it("does not churn the body between two ticks inside the same interval", () => {
+it("does not churn the body between two renders inside the same interval", () => {
   const records = [rec(1, { team: "Power", urgency: "soon" })];
   const a = renderDigest({ records, lastSync: NOW, now: NOW, config: baseConfig });
   const b = renderDigest({ records, lastSync: NOW, now: NOW + 1_000, config: baseConfig });
@@ -2595,8 +2724,27 @@ it("does not churn the body between two ticks inside the same interval", () => {
 });
 ```
 
+**Cross-tick churn** — the more important one, and the one rounding does NOT fix.
+Consecutive real ticks are exactly one `refreshIntervalMs` apart, so the rounded
+bucket differs on *every* tick; hashing that stamp would force ~288 edits a day on
+an idle team. This is why `bodyHash` is built from `hashParts` rather than from the
+sent embeds:
+
+```ts
+it("does not churn the body across consecutive ticks", () => {
+  const records = [rec(1, { team: "Power", urgency: "soon" })];
+  const interval = baseConfig.refreshIntervalMs;
+  const a = renderDigest({ records, lastSync: NOW, now: NOW, config: baseConfig });
+  const b = renderDigest({ records, lastSync: NOW + interval, now: NOW + interval, config: baseConfig });
+  expect(a.bodyHash).toBe(b.bodyHash);
+  // The SENT body still advances its `updated` stamp — only the hash ignores it.
+  expect(a.embeds[0]!.description).not.toBe(b.embeds[0]!.description);
+});
+```
+
 Run: `npm test -- --project=core tests/core/render/digest.test.ts`
-Expected: PASS. If the "same interval" test fails, the header stamp is still raw `now`.
+Expected: PASS. If the cross-tick test fails, `bodyHash` is being computed from
+the sent embeds instead of `hashParts`.
 
 - [ ] **Step 6: Commit**
 
@@ -2695,9 +2843,21 @@ describe("renderRequestMessage", () => {
     expect(renderRequestMessage(rec({ isDraft: true }), baseConfig)).toContain("draft");
   });
 
-  it("stays inside Discord's 2000-character message limit with a long title and note", () => {
+  it("clamps title and note to 400 chars each before assembly", () => {
+    // Title/note are clamped well before the outer 2000-char limit is reachable, so
+    // asserting the outer limit here would pass no matter what the inner clamps do.
     const body = renderRequestMessage(
       rec({ title: "x".repeat(1200), note: "y".repeat(1200) }),
+      baseConfig,
+    );
+    expect(body.split("\n")[0]!.length).toBeLessThanOrEqual(450);
+  });
+
+  it("stays inside Discord's 2000-character message limit even with an unclamped owner/repo", () => {
+    // owner/repo are the only inputs that reach the assembled body unclamped, so they're
+    // the only way to actually exercise the outer clamp.
+    const body = renderRequestMessage(
+      rec({ owner: "x".repeat(900), repo: "y".repeat(900) }),
       baseConfig,
     );
     expect(body.length).toBeLessThanOrEqual(2000);
@@ -2712,6 +2872,7 @@ import { describe, expect, it } from "vitest";
 import { config as baseConfig } from "../../../config/config.js";
 import { renderDailyPost } from "../../../src/core/render/daily.js";
 import { newScannedRecord, resolveRecord, type PrRecord } from "../../../src/core/record.js";
+import { relTs } from "../../../src/core/time.js";
 import type { TeamName, UrgencyKey } from "../../../config/config.js";
 
 const T0 = 1_756_000_000_000;
@@ -2749,7 +2910,10 @@ describe("renderDailyPost", () => {
       config: baseConfig,
     });
     expect(body).toContain("2 PRs waiting");
-    expect(body).toMatch(/<t:\d+:R>/);
+    // Pin the reduce to the oldest record, not just "any relative timestamp" — a reduce
+    // that picked the newest, or one that stamped Date.now(), would also match /<t:\d+:R>/.
+    expect(body).toContain(relTs(T0 - 8 * DAY));
+    expect(body).not.toContain(relTs(T0 - 3 * DAY));
   });
 
   it("uses the singular for one row", () => {
@@ -2922,8 +3086,14 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Fixed so no fixture depends on the real clock. 2026-08-31T12:00:00Z. */
-export const FIXTURE_NOW = 1_756_641_600_000;
+/**
+ * Fixed so no fixture depends on the real clock: 2026-08-31T16:00:00Z, which is
+ * 11:00 America/Chicago. Same instant as `T0` in every other task's tests — the
+ * digest renderer only uses relative offsets, but keeping one value everywhere
+ * removes a trap for anyone who later adds a date- or local-hour-dependent
+ * assertion here.
+ */
+export const FIXTURE_NOW = 1_788_192_000_000;
 
 export interface Scenario {
   key: string;
@@ -3400,6 +3570,14 @@ export interface DigestPublisher {
   messageUrl(messageId: string): string;
 }
 
+/** A tick that finds a live lease younger than this exits immediately without
+ *  writing. Cron gives no overlap prevention. Exported here — not derived from
+ *  `config.refreshIntervalMs` — because this value tracks Cloudflare's scheduled
+ *  wall-clock limit, not the tick interval; coupling them would let a future
+ *  interval change silently move a platform bound. `memory.ts` and `do.ts` both
+ *  import this constant so the two implementations cannot drift apart. */
+export const LEASE_TIMEOUT_MS = 15 * 60_000;
+
 export type BeginTickResult =
   | { acquired: true; state: StoreState }
   | { acquired: false; reason: "lease-held"; heldSince: number };
@@ -3514,10 +3692,14 @@ describe("upsertScanned", () => {
   });
 
   it("is idempotent — re-scanning the same PR does not duplicate or reset it", () => {
+    // The second scan must carry its OWN messageTimestamp, distinct from the first — otherwise
+    // `firstRequestedAt === T0` can't tell "left alone" from "recreated from this same input".
     const once = run(emptyState(), { kind: "upsertScanned", input, now: T0 + HOUR });
-    const twice = run(once.state, { kind: "upsertScanned", input, now: T0 + 2 * HOUR });
+    const secondInput = { ...input, messageTimestamp: T0 + 2 * HOUR, messageId: "msg-2" };
+    const twice = run(once.state, { kind: "upsertScanned", input: secondInput, now: T0 + 2 * HOUR });
     expect(Object.keys(twice.state.records)).toHaveLength(1);
     expect(twice.state.records[ID]?.firstRequestedAt).toBe(T0);
+    expect(twice.state.records[ID]?.lastRequestedAt).toBe(T0);
   });
 
   it("does NOT reopen a resolved record — conversational mentions are the common case", () => {
@@ -3617,8 +3799,10 @@ describe("applySnapshot and markSyncPaused", () => {
 });
 
 describe("menu revalidation", () => {
-  it("rejects a resolve whose option value is stale, preserving the audit trail", () => {
+  it("refuses to overwrite a resolvedBy the tick already set", () => {
     // The tick resolved this row 60 seconds ago; the reader's client still shows it.
+    // This exercises applyOne's `!isOpen(existing)` check, which runs BEFORE the
+    // staleness check below — it is a different guard from the one the next test covers.
     const resolved = withRecord({ resolvedAt: T0 + HOUR, resolvedBy: "review by Katherine" });
     const out = run(resolved, {
       kind: "resolve",
@@ -3629,6 +3813,21 @@ describe("menu revalidation", () => {
     });
     expect(out.results[0]).toEqual({ kind: "not-open" });
     expect(out.state.records[ID]?.resolvedBy).toBe("review by Katherine");
+  });
+
+  it("rejects a resolve whose option value is stale, preserving the audit trail", () => {
+    // Open and unresolved, so the `!isOpen` guard above does NOT fire — this is the only
+    // test that reaches the resolve path's own staleness check.
+    const rerequested = withRecord({ lastRequestedAt: T0 + 3 * HOUR });
+    const out = run(rerequested, {
+      kind: "resolve",
+      id: ID,
+      by: "cleared by Jolie",
+      at: T0 + 4 * HOUR,
+      expectLastRequestedAt: T0,
+    });
+    expect(out.results[0]).toEqual({ kind: "stale" });
+    expect(out.state.records[ID]?.resolvedAt).toBeNull();
   });
 
   it("rejects a claim whose expected lastRequestedAt no longer matches", () => {
@@ -4007,7 +4206,7 @@ Two implementations of one interface. `MemoryStore` is not a mock — it holds r
 **Files:**
 - Create: `src/store/memory.ts`, `src/store/do.ts`
 - Test: `tests/store/memory.test.ts`, `tests/workers/do.test.ts`
-- Modify: `wrangler.jsonc` (created here)
+- Modify: `wrangler.jsonc` (created here), `vitest.config.ts` (adds the `workers` project and collects this task's test file — see Step 2)
 
 **Interfaces:**
 - Consumes: everything from Task 11; `renderDigest` from Task 8; `renderDailyPost` from Task 9.
@@ -4026,22 +4225,19 @@ import type { Config } from "../../config/config.js";
 import { renderDailyPost } from "../core/render/daily.js";
 import { renderDigest } from "../core/render/digest.js";
 import { applyCommands, emptyState } from "./apply.js";
-import type {
-  ApplyResult,
-  BeginTickResult,
-  Command,
-  CommandResult,
-  DigestOutcome,
-  DigestPublisher,
-  FinishTickInput,
-  FinishTickResult,
-  Store,
-  StoreState,
+import {
+  LEASE_TIMEOUT_MS,
+  type ApplyResult,
+  type BeginTickResult,
+  type Command,
+  type CommandResult,
+  type DigestOutcome,
+  type DigestPublisher,
+  type FinishTickInput,
+  type FinishTickResult,
+  type Store,
+  type StoreState,
 } from "./types.js";
-
-/** A tick that finds a live lease younger than the scheduled wall-clock limit
- *  exits immediately without writing. Cron gives no overlap prevention. */
-const LEASE_TIMEOUT_MS = 15 * 60_000;
 
 function dateKey(epochMs: number, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
@@ -4231,7 +4427,51 @@ export class MemoryStore implements Store {
 }
 ```
 
-- [ ] **Step 2: Write the lost-update ordering test**
+- [ ] **Step 2: Add the `workers` vitest project and collect this task's test file**
+
+`vitest.config.ts` (from Task 1) defines only the `core` project, and that project's `include` doesn't match `tests/store/memory.test.ts` — the lost-update ordering suite the spec names explicitly would never be collected. It also has no `workers` project at all yet, so every `tests/workers/**` suite from this task through Task 19 (do, verify, rest, scan, credentials, query, scheduled, interactions, startup, reviewList, index) would be silently unreachable. Fix both in one edit:
+
+```ts
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    projects: [
+      {
+        test: {
+          name: "core",
+          include: ["tests/core/**/*.test.ts", "tests/store/apply.test.ts", "tests/store/memory.test.ts"],
+          environment: "node",
+        },
+      },
+      defineWorkersProject({
+        test: {
+          name: "workers",
+          include: ["tests/workers/**/*.test.ts"],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: "./wrangler.jsonc" },
+            },
+          },
+        },
+      }),
+    ],
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text", "json-summary"],
+      include: ["src/**"],
+      thresholds: {
+        "src/core/**": { lines: 95, branches: 95, functions: 95, statements: 95 },
+      },
+    },
+  },
+});
+```
+
+Do not restore a broad `src/**` coverage threshold here — it would overlap `src/core/**` and double-count, which is why it was removed. A narrower threshold scoped to the adapter directories (`src/discord/**`, `src/github/**`, `src/store/**`, `src/handlers/**`) can be added once those directories exist, not before.
+
+- [ ] **Step 3: Write the lost-update ordering test**
 
 `tests/store/memory.test.ts`. This is the test the spec names explicitly: drive it by interleaving the handler and the tick against the store, **not** by mocking the store away — the bug lives precisely in the seam a mock would remove.
 
@@ -4243,7 +4483,7 @@ import { MemoryStore } from "../../src/store/memory.js";
 import type { DigestPayload, DigestPublisher, StoreState } from "../../src/store/types.js";
 import { newScannedRecord, recordId } from "../../src/core/record.js";
 
-const T0 = 1_756_641_600_000; // 2026-08-31T12:00:00Z — after 09:00 local
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const MINUTE = 60_000;
 const ID = "paranext/paranext-core/177";
 
@@ -4375,17 +4615,23 @@ describe("the write-skip", () => {
   });
 
   it("does not write the hash when the PATCH fails, so the correction is not suppressed", async () => {
-    const { publisher, patches } = makeFakePublisher();
+    const { publisher } = makeFakePublisher();
     const failing: DigestPublisher = { ...publisher, patchDigest: async () => ({ ok: false, status: 500 }) };
-    const store = new MemoryStore(config, failing, seeded());
+    const base = seeded();
+    // Seed a known, deliberately-wrong hash so we can prove it survives the failed PATCH —
+    // comparing against seeded()'s null hash can't distinguish "left alone" from "erased".
+    const store = new MemoryStore(config, failing, {
+      ...base,
+      meta: { ...base.meta, digestBodyHash: "deadbeef" },
+    });
 
     await store.beginTick(T0);
     const first = await store.finishTick({ commands: [], now: T0 + 10_000, syncOk: true });
-    expect(first.digest.action).toBe("patched");
-    // First tick had no stored hash, so it PATCHes. Force a body change and fail it.
+    // The PATCH failed (not a 404), so the action reported is "failed", not "patched" —
+    // attempting a PATCH is not the same as it having succeeded.
+    expect(first.digest.action).toBe("failed");
     const stored = (await store.readState()).meta.digestBodyHash;
-    expect(stored).not.toBe(first.digest.bodyHash);
-    expect(patches.length).toBe(0);
+    expect(stored).toBe("deadbeef");
   });
 });
 
@@ -4466,12 +4712,12 @@ describe("the daily post", () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail, then pass**
+- [ ] **Step 4: Run the tests to verify they fail, then pass**
 
 Run: `npm test -- --project=core tests/store/memory.test.ts`
 Expected: FAIL first (missing module), then PASS once Step 1's file is in place. If "a claim committed mid-tick survives the tick's write" fails, `finishTick` is reading the `beginTick` snapshot instead of `this.state` — that is exactly the lost-update bug.
 
-- [ ] **Step 4: Write `wrangler.jsonc`**
+- [ ] **Step 5: Write `wrangler.jsonc`**
 
 ```jsonc
 {
@@ -4492,7 +4738,7 @@ Expected: FAIL first (missing module), then PASS once Step 1's file is in place.
 
 The KV namespace holds only genuinely independent values — the PRD cache (plan 2) and nothing this plan writes on every tick. `syncLease` and `digestBodyHash` live in the Durable Object: the lease needs an atomic take that KV cannot provide, and a take-and-release KV write every tick would be ~576 writes a day that the write-skip cannot elide.
 
-- [ ] **Step 5: Write `src/store/do.ts`**
+- [ ] **Step 6: Write `src/store/do.ts`**
 
 ```ts
 import { DurableObject } from "cloudflare:workers";
@@ -4500,18 +4746,18 @@ import { config as defaultConfig } from "../../config/config.js";
 import { renderDigest } from "../core/render/digest.js";
 import { applyCommands, emptyState } from "./apply.js";
 import { commitTick } from "./memory.js";
-import type {
-  ApplyResult,
-  BeginTickResult,
-  Command,
-  Config,
-  DigestPublisher,
-  FinishTickInput,
-  FinishTickResult,
-  StoreState,
+import {
+  LEASE_TIMEOUT_MS,
+  type ApplyResult,
+  type BeginTickResult,
+  type Command,
+  type Config,
+  type DigestPublisher,
+  type FinishTickInput,
+  type FinishTickResult,
+  type StoreState,
 } from "./types.js";
 
-const LEASE_TIMEOUT_MS = 15 * 60_000;
 const STATE_KEY = "state";
 
 export interface RecordsObjectEnv {
@@ -4615,7 +4861,7 @@ export class RecordsObject extends DurableObject<RecordsObjectEnv> {
 }
 ```
 
-- [ ] **Step 6: Write the Durable Object test**
+- [ ] **Step 7: Write the Durable Object test**
 
 `tests/workers/do.test.ts`. This runs in the Workers pool and proves the object serializes what `MemoryStore` serializes.
 
@@ -4627,7 +4873,7 @@ import { emptyState } from "../../src/store/apply.js";
 import { newScannedRecord, recordId } from "../../src/core/record.js";
 import type { DigestPayload, DigestPublisher } from "../../src/store/types.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const ID = "paranext/paranext-core/177";
 
 function fakePublisher(patches: DigestPayload[]): DigestPublisher {
@@ -4681,6 +4927,16 @@ describe("RecordsObject", () => {
     expect(await stub.beginTick(T0 + 30_000)).toMatchObject({ acquired: false });
   });
 
+  it("breaks a lease older than LEASE_TIMEOUT_MS, same as MemoryStore", async () => {
+    // do.ts and memory.ts both import LEASE_TIMEOUT_MS from types.ts. This pins the
+    // Durable Object side of that shared constant so the two cannot silently drift —
+    // a mismatch here would break a live lease mid-tick and let the loop overlap.
+    const id = env.RECORDS.idFromName("test-lease-break");
+    const stub = env.RECORDS.get(id);
+    expect(await stub.beginTick(T0)).toMatchObject({ acquired: true });
+    expect(await stub.beginTick(T0 + 16 * 60_000)).toMatchObject({ acquired: true });
+  });
+
   it("keeps a mid-tick claim through finishTick", async () => {
     const patches: DigestPayload[] = [];
     const id = env.RECORDS.idFromName("test-ordering");
@@ -4716,15 +4972,15 @@ describe("RecordsObject", () => {
 });
 ```
 
-- [ ] **Step 7: Run the Workers-pool tests**
+- [ ] **Step 8: Run the Workers-pool tests**
 
 Run: `npm test -- --project=workers`
 Expected: PASS. If the pool cannot start, check that `wrangler.jsonc` parses and that `migrations` names `RecordsObject` under `new_sqlite_classes`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/store/memory.ts src/store/do.ts wrangler.jsonc tests/store/memory.test.ts tests/workers/do.test.ts
+git add src/store/memory.ts src/store/do.ts wrangler.jsonc vitest.config.ts tests/store/memory.test.ts tests/workers/do.test.ts
 git commit -m "feat(store): memory and Durable Object stores with lease, write-skip and mid-tick claim safety"
 ```
 
@@ -4741,7 +4997,7 @@ git commit -m "feat(store): memory and Durable Object stores with lease, write-s
 - Produces:
   - `function verifyDiscordRequest(rawBody: string, signature: string | null, timestamp: string | null, publicKeyHex: string): Promise<boolean>`
   - `class DiscordRest` — constructor `(token: string)`, methods below
-  - `function makeDigestPublisher(rest: DiscordRest, guildId: string, channelId: string): DigestPublisher`
+  - `function makeDigestPublisher(rest: DiscordRest, guildId: string, config: Config): DigestPublisher`
   - `DiscordRest` methods: `getMessages`, `patchMessage`, `postMessage`, `getPins`, `getApplication`
 
 Two API details that must be right, both from the spec:
@@ -4798,7 +5054,7 @@ export async function verifyDiscordRequest(
 `tests/workers/verify.test.ts`:
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { verifyDiscordRequest } from "../../src/discord/verify.js";
 
 function toHex(buffer: ArrayBuffer): string {
@@ -4846,6 +5102,18 @@ describe("verifyDiscordRequest", () => {
     expect(await verifyDiscordRequest(body, "not-hex", timestamp, publicKeyHex)).toBe(false);
     expect(await verifyDiscordRequest(body, "abcd", timestamp, publicKeyHex)).toBe(false);
   });
+
+  it("rejects a malformed signature via the hex/length guard, never reaching crypto.subtle", async () => {
+    // Without this guard, "not-hex" and "abcd" would still return false, but via
+    // hexToBytes throwing (caught by the outer try/catch) or a genuine failed verify —
+    // both indistinguishable from the guard actually running. Spy on importKey to prove
+    // the guard, not the catch-all, is what rejects these inputs.
+    const { publicKeyHex } = await signed(body, timestamp);
+    const importKey = vi.spyOn(crypto.subtle, "importKey");
+    await verifyDiscordRequest(body, "abcd", timestamp, publicKeyHex);
+    expect(importKey).not.toHaveBeenCalled();
+    importKey.mockRestore();
+  });
 });
 ```
 
@@ -4869,9 +5137,16 @@ export interface DiscordApplication {
   flags: number;
 }
 
-/** GATEWAY_MESSAGE_CONTENT and GATEWAY_MESSAGE_CONTENT_LIMITED. */
-export const FLAG_MESSAGE_CONTENT = 1 << 19;
-export const FLAG_MESSAGE_CONTENT_LIMITED = 1 << 20;
+/**
+ * GATEWAY_MESSAGE_CONTENT and GATEWAY_MESSAGE_CONTENT_LIMITED — application flags,
+ * NOT the (differently-numbered) gateway intents bitfield. These bit positions are
+ * knowledge-based, not confirmed by a documentation lookup; `rest.test.ts` pins
+ * them to raw literals so a wrong value is visible and checkable rather than
+ * silently green, and Task 20's runbook adds a live-data verification step
+ * (`GET /applications/@me` against the real application).
+ */
+export const FLAG_MESSAGE_CONTENT = 1 << 18;
+export const FLAG_MESSAGE_CONTENT_LIMITED = 1 << 19;
 
 export type RestResult<T> = { ok: true; value: T } | { ok: false; status: number; body: string };
 
@@ -4896,10 +5171,19 @@ export class DiscordRest {
     return { ok: true, value: (await response.json()) as T };
   }
 
-  /** One page, newest-first, or after `afterId` in ascending order. Caps at 100. */
-  getMessages(channelId: string, opts: { after?: string; limit?: number }): Promise<RestResult<DiscordMessage[]>> {
+  /**
+   * One page, newest-first with no cursor; ascending after `after`; descending
+   * (older) before `before`. `before` is what a first-run backward walk needs —
+   * see Task 14 — since `after=<newest id>` has no messages newer than it to find.
+   * Caps at 100.
+   */
+  getMessages(
+    channelId: string,
+    opts: { after?: string; before?: string; limit?: number },
+  ): Promise<RestResult<DiscordMessage[]>> {
     const params = new URLSearchParams({ limit: String(opts.limit ?? 100) });
     if (opts.after !== undefined) params.set("after", opts.after);
+    if (opts.before !== undefined) params.set("before", opts.before);
     return this.call<DiscordMessage[]>("GET", `/channels/${channelId}/messages?${params.toString()}`);
   }
 
@@ -4963,7 +5247,12 @@ export function makeDigestPublisher(
 ```ts
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "../../config/config.js";
-import { DiscordRest, makeDigestPublisher } from "../../src/discord/rest.js";
+import {
+  DiscordRest,
+  FLAG_MESSAGE_CONTENT,
+  FLAG_MESSAGE_CONTENT_LIMITED,
+  makeDigestPublisher,
+} from "../../src/discord/rest.js";
 
 interface Call { url: string; method: string; body: unknown; headers: Record<string, string> }
 
@@ -4988,6 +5277,16 @@ function stubFetch(responses: { status: number; json?: unknown }[]) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("intent flags", () => {
+  // Checked against Discord's documented values, not against themselves — the startup
+  // intent assertion (Task 19) ANDs a fixture flag against these same constants, so a
+  // self-consistent fixture there could not have caught either bit being wrong.
+  it("pins the application flag bits to their documented values", () => {
+    expect(FLAG_MESSAGE_CONTENT).toBe(262144);
+    expect(FLAG_MESSAGE_CONTENT_LIMITED).toBe(524288);
+  });
+});
+
 describe("DiscordRest", () => {
   it("sends the bot token and a User-Agent on every call", async () => {
     const calls = stubFetch([{ status: 200, json: [] }]);
@@ -5008,7 +5307,6 @@ describe("DiscordRest", () => {
     const calls = stubFetch([{ status: 200, json: { items: [] } }]);
     await new DiscordRest("tok").getPins("chan");
     expect(calls[0]!.url).toBe("https://discord.com/api/v10/channels/chan/messages/pins");
-    expect(calls[0]!.url).not.toMatch(/\/channels\/chan\/pins$/);
   });
 
   it("returns a typed failure rather than throwing on a non-2xx", async () => {
@@ -5106,7 +5404,7 @@ import { config as baseConfig } from "../../config/config.js";
 import { DiscordRest, type DiscordMessage } from "../../src/discord/rest.js";
 import { scanChannels } from "../../src/discord/scan.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const CHANNEL = baseConfig.digestChannelId;
 const config = { ...baseConfig, allowedChannelIds: [CHANNEL], digestChannelId: CHANNEL };
 
@@ -5127,6 +5425,26 @@ function stubPages(pages: DiscordMessage[][]) {
     const page = pages[index] ?? [];
     index += 1;
     return new Response(JSON.stringify(page), { status: 200 });
+  });
+  return urls;
+}
+
+/**
+ * Keys each response off the `before`/`after` query parameter rather than call
+ * order, so a test can actually assert which direction the scan paged in — a
+ * call-order stub would accept either direction silently.
+ */
+function stubPagesByQuery(byParam: Record<string, DiscordMessage[]>) {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", async (input: string) => {
+    urls.push(String(input));
+    const url = new URL(String(input));
+    const key = url.searchParams.has("before")
+      ? `before=${url.searchParams.get("before")}`
+      : url.searchParams.has("after")
+        ? `after=${url.searchParams.get("after")}`
+        : "initial";
+    return new Response(JSON.stringify(byParam[key] ?? []), { status: 200 });
   });
   return urls;
 }
@@ -5173,25 +5491,39 @@ describe("scanChannels", () => {
   });
 
   it("pages until a short page arrives", async () => {
-    const full = Array.from({ length: 100 }, (_, i) => message(String(100 + i), "no links"));
-    const second = [message("300", PR)];
-    const urls = stubPages([full, second]);
+    // GET with no cursor returns the NEWEST 100 messages, so a first run pages OLDER
+    // with before=<oldest id so far> — paging forward with after=<newest id> would
+    // ask for messages newer than the newest, of which there are none.
+    const newest = Array.from({ length: 100 }, (_, i) => message(String(300 + i), "no links"));
+    const older = [message("299", PR)];
+    const urls = stubPagesByQuery({
+      initial: newest,
+      "before=300": older,
+    });
     const outcome = await scanChannels(new DiscordRest("tok"), config, {}, "bot-1", T0);
     expect(outcome.pagesRead).toBe(2);
     expect(outcome.commands).toHaveLength(1);
-    expect(urls[1]).toContain("after=199");
+    expect(urls[1]).toContain("before=300");
   });
 
-  it("stops at the page cap and advances the cursor only to the oldest fully processed message", async () => {
-    const pages = Array.from({ length: 10 }, (_, page) =>
-      Array.from({ length: 100 }, (_, i) => message(String(page * 100 + i + 1), "no links")),
+  it("stops at the page cap and advances the cursor to the newest fully processed message", async () => {
+    // Ten 100-message groups, oldest-to-newest by index. A first run walks
+    // backwards starting from the newest group (index 9).
+    const groups = Array.from({ length: 10 }, (_, g) =>
+      Array.from({ length: 100 }, (_, i) => message(String(g * 100 + i + 1), "no links")),
     );
-    stubPages(pages);
+    stubPagesByQuery({
+      initial: groups[9]!,
+      "before=901": groups[8]!,
+      "before=801": groups[7]!,
+    });
     const capped = { ...config, budgets: { ...config.budgets, scanPagesPerTick: 3 } };
     const outcome = await scanChannels(new DiscordRest("tok"), capped, {}, "bot-1", T0);
     expect(outcome.pagesRead).toBe(3);
     expect(outcome.hitPageCap).toBe(true);
-    expect(outcome.cursors[CHANNEL]).toBe("300");
+    // "1000" is the NEWEST id seen (from the first, most-recent group), not the
+    // oldest — the cursor lets the NEXT tick page forward with after=<cursor>.
+    expect(outcome.cursors[CHANNEL]).toBe("1000");
   });
 
   it("returns no cursor change when a channel has no new messages", async () => {
@@ -5252,6 +5584,41 @@ export interface ScanOutcome {
 
 const PAGE_SIZE = 100;
 
+function toCommands(
+  messages: DiscordMessage[],
+  channelId: string,
+  botUserId: string,
+  config: Config,
+  now: number,
+): Command[] {
+  const commands: Command[] = [];
+  for (const message of messages) {
+    // The bot's own request messages would double-count their own PRs.
+    if (message.author.id === botUserId) continue;
+
+    for (const pr of extractPrUrls(message.content)) {
+      if (!isAllowlisted(pr, config.repoAllowlist)) continue;
+      commands.push({
+        kind: "upsertScanned",
+        now,
+        input: {
+          pr,
+          channelId,
+          messageId: message.id,
+          // The MESSAGE's timestamp, not the scan time. This is what lets a
+          // scanned record ever satisfy the exit condition: a record whose
+          // review already happened is born resolved.
+          messageTimestamp: Date.parse(message.timestamp),
+          title: `${pr.repo}#${pr.number}`,
+          prAuthorLogin: null,
+          isDraft: false,
+        },
+      });
+    }
+  }
+  return commands;
+}
+
 async function scanOne(
   rest: DiscordRest,
   config: Config,
@@ -5261,20 +5628,68 @@ async function scanOne(
   now: number,
   pageBudget: number,
 ): Promise<{ commands: Command[]; cursor: string | null; pagesRead: number; hitCap: boolean }> {
-  const commands: Command[] = [];
-  const firstRun = cursor === undefined;
   const lookbackFrom = now - config.scanLookbackMs;
 
-  let after = cursor;
+  if (cursor === undefined) {
+    // First run, no stored cursor. `GET /channels/{id}/messages` with no query
+    // returns the NEWEST 100 messages. Paging FORWARD from there with
+    // after=<newest id> would ask for messages newer than the newest — there are
+    // none — so the only way to reach the configured lookback window on a first
+    // run is to walk BACKWARDS with before=<oldest id seen so far>, stopping once
+    // a message predates `now - scanLookbackMs` or the page cap is hit.
+    const commands: Command[] = [];
+    let before: string | undefined;
+    let newestOfFirstPage: string | null = null;
+    let pagesRead = 0;
+    let hitCap = false;
+
+    while (pagesRead < pageBudget) {
+      const page = await rest.getMessages(channelId, before === undefined ? {} : { before });
+      if (!page.ok) {
+        // Leave the cursor alone: a tick that dies mid-run re-scans rather than
+        // skipping, and re-scanning is safe because identity is owner/repo/number.
+        return { commands: [], cursor: null, pagesRead, hitCap: false };
+      }
+      pagesRead += 1;
+
+      const messages: DiscordMessage[] = page.value;
+      if (messages.length === 0) break;
+
+      // Ascending by id.
+      const ordered = [...messages].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+      if (newestOfFirstPage === null) newestOfFirstPage = ordered.at(-1)!.id;
+
+      const inWindow = ordered.filter((m) => Date.parse(m.timestamp) >= lookbackFrom);
+      commands.push(...toCommands(inWindow, channelId, botUserId, config, now));
+
+      const hitLookbackEdge = inWindow.length < ordered.length;
+      before = ordered[0]!.id;
+
+      if (hitLookbackEdge) break;
+      if (messages.length < PAGE_SIZE) break;
+      if (pagesRead >= pageBudget) {
+        hitCap = true;
+        break;
+      }
+    }
+
+    // The cursor advances to the newest message seen — the FIRST page fetched,
+    // since a backward walk starts at "now" — so the next tick can page FORWARD
+    // with after=<cursor> instead of repeating this backward walk.
+    return { commands, cursor: newestOfFirstPage, pagesRead, hitCap };
+  }
+
+  // A cursor exists: page FORWARD with after=<cursor>, which is what the
+  // endpoint actually supports for "give me what's new since I last looked".
+  const commands: Command[] = [];
+  let after: string | undefined = cursor;
   let newestProcessed: string | null = null;
   let pagesRead = 0;
   let hitCap = false;
 
   while (pagesRead < pageBudget) {
-    const page = await rest.getMessages(channelId, after === undefined ? {} : { after });
+    const page = await rest.getMessages(channelId, { after });
     if (!page.ok) {
-      // Leave the cursor alone: a tick that dies mid-run re-scans rather than
-      // skipping, and re-scanning is safe because identity is owner/repo/number.
       return { commands: [], cursor: null, pagesRead, hitCap: false };
     }
     pagesRead += 1;
@@ -5282,40 +5697,11 @@ async function scanOne(
     const messages: DiscordMessage[] = page.value;
     if (messages.length === 0) break;
 
-    // Ascending by id, so the newest processed id is the last one.
     const ordered = [...messages].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+    newestProcessed = ordered.at(-1)!.id;
+    after = newestProcessed;
+    commands.push(...toCommands(ordered, channelId, botUserId, config, now));
 
-    for (const message of ordered) {
-      const timestamp = Date.parse(message.timestamp);
-      newestProcessed = message.id;
-
-      if (firstRun && timestamp < lookbackFrom) continue;
-      // The bot's own request messages would double-count their own PRs.
-      if (message.author.id === botUserId) continue;
-
-      for (const pr of extractPrUrls(message.content)) {
-        if (!isAllowlisted(pr, config.repoAllowlist)) continue;
-        commands.push({
-          kind: "upsertScanned",
-          now,
-          input: {
-            pr,
-            channelId,
-            messageId: message.id,
-            // The MESSAGE's timestamp, not the scan time. This is what lets a
-            // scanned record ever satisfy the exit condition: a record whose
-            // review already happened is born resolved.
-            messageTimestamp: timestamp,
-            title: `${pr.repo}#${pr.number}`,
-            prAuthorLogin: null,
-            isDraft: false,
-          },
-        });
-      }
-    }
-
-    const last = ordered.at(-1);
-    after = last?.id;
     if (messages.length < PAGE_SIZE) break;
     if (pagesRead >= pageBudget) {
       hitCap = true;
@@ -5398,7 +5784,7 @@ Two credentials, routed by owner. Private repos exist only in `paranext`, where 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CredentialProvider, routeOwner, signAppJwt } from "../../src/github/credentials.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const HOUR = 3_600_000;
 
 // A throwaway 2048-bit RSA key generated for tests only. Never a real credential.
@@ -5451,7 +5837,12 @@ describe("signAppJwt", () => {
     const payload = JSON.parse(atob(jwt.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
     const nowSeconds = Math.floor(T0 / 1000);
     expect(payload.iat).toBe(nowSeconds - 60);
-    expect(payload.exp).toBeLessThanOrEqual(nowSeconds + 600);
+    // Pinned to the exact value, not just an upper bound: `<=` alone is satisfied by
+    // any already-expired JWT (exp === iat, or even 0), and GitHub's 401 on an expired
+    // JWT is what trips the fail-closed latch below — this is the one direction with
+    // a large blast radius.
+    expect(payload.exp).toBe(nowSeconds + 540);
+    expect(payload.exp - payload.iat).toBeLessThanOrEqual(600);
   });
 });
 
@@ -5526,12 +5917,18 @@ describe("CredentialProvider", () => {
     expect(await provider.tokenFor("public", T0)).toMatchObject({ ok: false, failedClosed: true });
   });
 
-  it("reports health per credential — key age for the App, not a token expiry", async () => {
-    stubFetch([{ status: 201, json: { token: "ghs_a", expires_at: new Date(T0 + HOUR).toISOString() } }]);
+  it("reports health per credential — token expiry for the App, not a key age", async () => {
+    // health() has no private-key-age field: key creation time isn't derivable from
+    // a PEM, and reporting it would mean inventing a new secret. It reports
+    // tokenExpiresInMs instead; the gap this leaves (a rotated-late key is caught by
+    // a human, not this endpoint) is recorded as a runbook line in Task 20.
     const provider = new CredentialProvider(secrets);
+    expect(provider.health(T0).app.tokenExpiresInMs).toBeNull();
+
+    stubFetch([{ status: 201, json: { token: "ghs_a", expires_at: new Date(T0 + HOUR).toISOString() } }]);
     await provider.tokenFor("app", T0);
     const health = provider.health(T0);
-    expect(health.app).toMatchObject({ failedClosed: false, installationId: "67890" });
+    expect(health.app).toMatchObject({ failedClosed: false, installationId: "67890", tokenExpiresInMs: HOUR });
     expect(health.public).toMatchObject({ failedClosed: false });
   });
 });
@@ -5749,32 +6146,59 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CredentialProvider } from "../../src/github/credentials.js";
 import { buildQuery, fetchSnapshots } from "../../src/github/query.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
+const HOUR = 3_600_000;
+
+// A throwaway 2048-bit RSA key generated for tests only — see Step 2. Not a
+// credential. Real (not a placeholder string) because the "groups by credential"
+// test below actually mints an App JWT, and an unparseable PEM throws before the
+// test can assert anything about the request it's meant to check.
+const TEST_PEM_PLACEHOLDER = "GENERATE_IN_STEP_2";
 
 const secrets = {
   appId: "1",
   appInstallationId: "2",
-  appPrivateKeyPem: "unused-because-public-only",
+  appPrivateKeyPem: TEST_PEM_PLACEHOLDER,
   publicToken: "ghp_public",
 };
 
+// buildQuery aliases each PR as `p0: repository(...) { pullRequest(number: N) { ... } }`,
+// so a real response nests the PR node one level deeper than the alias — the
+// implementation reads `body.data?.[alias]?.pullRequest`. Every fixture below must
+// carry that wrapper, or every one of these tests would land every slug in
+// `notFound` against a real server, however green they are against each other.
 function prNode(number: number, overrides: Record<string, unknown> = {}) {
   return {
-    number,
-    title: `PT-${number}`,
-    isDraft: false,
-    merged: false,
-    state: "OPEN",
-    author: { login: "jolie" },
-    reviews: { nodes: [] },
-    ...overrides,
+    pullRequest: {
+      number,
+      title: `PT-${number}`,
+      isDraft: false,
+      merged: false,
+      state: "OPEN",
+      author: { login: "jolie" },
+      reviews: { nodes: [] },
+      ...overrides,
+    },
   };
 }
 
+/**
+ * Routes by URL, exactly like Task 17's `stubAll`: an App-credential mint
+ * (`/access_tokens`) is itself a `fetch` that a call-count-only stub would
+ * misroute — the mint request has no JSON body, so treating it as a GraphQL call
+ * would blow up `JSON.parse`. Only `/graphql` calls are pushed into `requests`.
+ */
 function stubGraphql(bodies: unknown[]) {
   const requests: { query: string }[] = [];
   let index = 0;
-  vi.stubGlobal("fetch", async (_input: string, init: RequestInit) => {
+  vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/access_tokens")) {
+      return new Response(
+        JSON.stringify({ token: "ghs_x", expires_at: new Date(T0 + HOUR).toISOString() }),
+        { status: 201 },
+      );
+    }
     requests.push(JSON.parse(String(init.body)) as { query: string });
     const body = bodies[Math.min(index, bodies.length - 1)];
     index += 1;
@@ -5866,8 +6290,11 @@ describe("fetchSnapshots", () => {
     expect(reviews[2]).toMatchObject({ submittedAt: null });
   });
 
-  it("derives MERGED state from the merged flag", async () => {
-    stubGraphql([{ data: { p0: prNode(341, { merged: true, state: "MERGED" }) } }]);
+  it("derives MERGED state from the merged flag, not from GitHub's own state field", async () => {
+    // GitHub's raw state says CLOSED here — an implementation that passed raw.state
+    // straight through, ignoring `merged`, would also produce a plausible-looking
+    // result if the fixture's state field already said "MERGED".
+    stubGraphql([{ data: { p0: prNode(341, { merged: true, state: "CLOSED" }) } }]);
     const outcome = await fetchSnapshots(provider(), ["eten-tech-foundation/scripture-editors/341"], T0);
     expect(outcome.snapshots.get("eten-tech-foundation/scripture-editors/341")).toMatchObject({
       merged: true,
@@ -5875,7 +6302,19 @@ describe("fetchSnapshots", () => {
     });
   });
 
+  it("keeps CLOSED state when merged is false", async () => {
+    stubGraphql([{ data: { p0: prNode(341, { merged: false, state: "CLOSED" }) } }]);
+    const outcome = await fetchSnapshots(provider(), ["eten-tech-foundation/scripture-editors/341"], T0);
+    expect(outcome.snapshots.get("eten-tech-foundation/scripture-editors/341")).toMatchObject({
+      merged: false,
+      state: "CLOSED",
+    });
+  });
+
   it("groups by credential, so paranext and other owners are separate queries", async () => {
+    // paranext routes to "app", which mints a JWT and hits /access_tokens BEFORE
+    // it can query — that mint is a real fetch too, and must not be counted as
+    // one of the two graphql requests this test exists to prove.
     const requests = stubGraphql([{ data: { p0: prNode(1) } }, { data: { p0: prNode(2) } }]);
     await fetchSnapshots(provider(), ["paranext/paranext-core/1", "eten-tech-foundation/scripture-editors/2"], T0);
     expect(requests).toHaveLength(2);
@@ -5899,12 +6338,26 @@ describe("fetchSnapshots", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Generate the test key and paste it into the test file**
+
+Same throwaway key as Task 15 — a fresh one is fine, this file does not share state with `tests/workers/credentials.test.ts`. Run:
+
+```bash
+node -e '
+const { generateKeyPairSync } = require("node:crypto");
+const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+process.stdout.write(JSON.stringify(privateKey.export({ type: "pkcs8", format: "pem" })));
+'
+```
+
+Replace `TEST_PEM_PLACEHOLDER` in the test file with the printed string literal.
+
+- [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `npm test -- --project=workers tests/workers/query.test.ts`
 Expected: FAIL — `Cannot find module '../../src/github/query.js'`.
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 4: Write the implementation**
 
 `src/github/query.ts`:
 
@@ -6090,7 +6543,7 @@ export async function fetchSnapshots(
 }
 ```
 
-- [ ] **Step 4: Record real fixtures so an upstream payload change fails in CI**
+- [ ] **Step 5: Record real fixtures so an upstream payload change fails in CI**
 
 Run, then trim to two or three PRs each:
 
@@ -6126,12 +6579,12 @@ it("parses a recorded real GitHub response", async () => {
 
 Hand-write `fixtures/responses/github-partial-error.json` from the partial-error test's body — GitHub will not reliably produce one on demand, and the shape is what matters.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npm test -- --project=workers tests/workers/query.test.ts`
 Expected: PASS, including the recorded-fixture test and "NEVER requests reviewDecision".
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/github/query.ts tests/workers/query.test.ts fixtures/responses/
@@ -6170,7 +6623,7 @@ import { emptyState } from "../../src/store/apply.js";
 import { MemoryStore } from "../../src/store/memory.js";
 import type { DigestPayload, DigestPublisher, StoreState } from "../../src/store/types.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const DAY = 86_400_000;
 const CHANNEL = "chan-1";
 const config = { ...baseConfig, allowedChannelIds: [CHANNEL], digestChannelId: CHANNEL };
@@ -6297,10 +6750,17 @@ describe("runTick — the exit condition end to end", () => {
         },
       },
     });
-    const { publisher } = makePublisher();
+    const { publisher, patches } = makePublisher();
     const store = new MemoryStore(config, publisher, seeded([record(1)]));
     const report = await runTick(deps(store));
     expect(report.resolved).toBe(0);
+    // report.resolved alone isn't enough: it's now derived from the SAME
+    // countsAsReview call the store uses (see 17.2/R25), but assert the store's
+    // committed state directly too, so this stays the end-to-end proof it claims
+    // to be rather than trusting the report to describe what was committed.
+    const state = await store.readState();
+    expect(state.records["eten-tech-foundation/scripture-editors/1"]?.resolvedAt).toBeNull();
+    expect(patches.at(-1)!.embeds.map((e) => e.description).join("\n")).toContain("PT-1");
   });
 
   it("REOPENS and re-lists: reviewed, re-requested, listed again", async () => {
@@ -6435,8 +6895,11 @@ describe("runTick — scanning and housekeeping", () => {
     const store = new MemoryStore(config, publisher, seeded(records));
 
     const report = await runTick(deps(store));
-    // 2 store calls + 2 GraphQL chunks + 1 scan page + pins + patch.
-    expect(report.subrequests).toBeLessThan(50);
+    // The design invariant is "at most TWO store subrequests per tick, independent
+    // of record count" — `< 50` would also pass a regression that read the store
+    // once per record. Pin the exact count: 1 beginTick + 2 GraphQL chunks (40
+    // records, chunked to 25) + 1 scan page (no messages) + 1 finishTick.
+    expect(report.subrequests).toBe(5);
   });
 });
 
@@ -6453,6 +6916,11 @@ describe("runTick — read-only mode", () => {
     expect(report.digest).not.toBeNull();
     // The record is unchanged: nothing was committed.
     expect((await store.readState()).records["eten-tech-foundation/scripture-editors/1"]?.resolvedAt).toBeNull();
+    // The lease taken by beginTick must still be released even though finishTick
+    // never runs in read-only mode — otherwise every tick for the next
+    // LEASE_TIMEOUT_MS is turned away with lease-held, for the whole of shadow mode.
+    expect((await store.readState()).meta.syncLease).toBeNull();
+    expect(await store.beginTick(T0 + 60_000)).toMatchObject({ acquired: true });
   });
 });
 ```
@@ -6468,6 +6936,7 @@ Expected: FAIL — `Cannot find module '../../src/handlers/scheduled.js'`.
 
 ```ts
 import type { Config } from "../../config/config.js";
+import { countsAsReview } from "../core/exit.js";
 import { renderDigest } from "../core/render/digest.js";
 import { isOpen, recordId } from "../core/record.js";
 import { scanChannels } from "../discord/scan.js";
@@ -6537,15 +7006,17 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
       const snapshot = outcome.snapshots.get(id);
       if (snapshot !== undefined) {
         commands.push({ kind: "applySnapshot", id, snapshot, now });
-        // Counted here rather than after the fact so the report is honest even
-        // in read-only mode, where nothing is committed.
+        // Counted here rather than after the fact so the report is honest even in
+        // read-only mode, where nothing is committed. Uses the SAME predicate the
+        // store applies via applySnapshot/exitVerdict — a hand-copied
+        // re-implementation here previously diverged on a null-author review:
+        // countsAsReview's sameLogin() treats two nulls as NOT a match (a review by
+        // a deleted account on a record with no known author counts), where the old
+        // inline `(a ?? "") === (b ?? "")` compared "" === "" and wrongly called it
+        // a self-review.
+        const prAuthorLogin = record.prAuthorLogin ?? snapshot.authorLogin;
         if (snapshot.merged || snapshot.state === "CLOSED") resolved += 1;
-        else if (snapshot.reviews.some((r) =>
-          r.submittedAt !== null && r.submittedAt > record.lastRequestedAt &&
-          !r.authorIsBot &&
-          !(r.authorLogin ?? "").toLowerCase().endsWith("[bot]") &&
-          (r.authorLogin ?? "").toLowerCase() !== (record.prAuthorLogin ?? snapshot.authorLogin ?? "").toLowerCase()
-        )) resolved += 1;
+        else if (snapshot.reviews.some((r) => countsAsReview(r, prAuthorLogin, record.lastRequestedAt))) resolved += 1;
       } else if (outcome.notFound.includes(id)) {
         // A null is never "gone": mark it paused, never resolved.
         commands.push({ kind: "markSyncPaused", id, at: now });
@@ -6586,6 +7057,15 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
       config,
     });
     console.log("[read-only] would render:\n" + render.embeds.map((e) => e.description).join("\n---\n"));
+
+    // beginTick already took the lease above; finishTick is the only thing that
+    // releases it, and read-only mode never calls finishTick. Without this, the
+    // first tick under READ_ONLY takes the lease and every tick for the next
+    // LEASE_TIMEOUT_MS is turned away with lease-held — the loop runs once per
+    // lease timeout instead of once per refreshIntervalMs, for the entire
+    // duration of shadow mode.
+    await store.apply([{ kind: "setMeta", patch: { syncLease: null } }], { now, rerender: false });
+
     return {
       ...empty,
       syncOk,
@@ -6717,7 +7197,7 @@ import { emptyState } from "../../src/store/apply.js";
 import { MemoryStore } from "../../src/store/memory.js";
 import type { DigestPayload, DigestPublisher, StoreState } from "../../src/store/types.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const DAY = 86_400_000;
 const CHANNEL = "chan-1";
 const config = { ...baseConfig, allowedChannelIds: [CHANNEL], digestChannelId: CHANNEL };
@@ -6795,7 +7275,7 @@ describe("handleInteraction — gatekeeping", () => {
     expect(await response.json()).toEqual({ type: 1 });
   });
 
-  it("rejects an unverified request with 401 before reading the body", async () => {
+  it("rejects an unverified request with 401 before parsing or applying anything", async () => {
     const { store } = makeStore([]);
     const response = await handleInteraction(componentRequest("digest:claim", `${ID}:${T0 - 3 * DAY}`), deps(store, false));
     expect(response.status).toBe(401);
@@ -6833,10 +7313,14 @@ describe("handleInteraction — claim", () => {
   });
 
   it("explains and no-ops when the option value is stale", async () => {
+    // "changed" also appears in not-open ("Nothing changed."), not-found ("Nothing
+    // changed.") and the default branch ("Nothing changed for…") — asserting it
+    // alone can't tell "stale" from those other three outcomes. "re-requested" is
+    // the one phrase unique to the stale branch.
     const { store } = makeStore([record({ lastRequestedAt: T0 - 60_000 })]);
     const response = await handleInteraction(componentRequest("digest:claim", `${ID}:${T0 - 3 * DAY}`), deps(store));
     const body = (await response.json()) as { data: { content: string } };
-    expect(body.data.content.toLowerCase()).toContain("changed");
+    expect(body.data.content).toContain("re-requested");
     expect((await store.readState()).records[ID]?.claimedBy).toBeNull();
   });
 });
@@ -6856,7 +7340,11 @@ describe("handleInteraction — resolve and reopen", () => {
     const { store } = makeStore([alreadyResolved]);
     const response = await handleInteraction(componentRequest("digest:resolve", `${ID}:${T0 - 3 * DAY}`), deps(store));
     const body = (await response.json()) as { data: { content: string } };
-    expect(body.data.content).toContain("already");
+    // "already" alone is also produced by applyOne's OWN not-open guard inside the
+    // store — deleting the handler's early return this test names would still pass,
+    // since describe()'s not-open branch also contains "already" (just not the
+    // resolver's name). Assert the message only the handler's own check can produce.
+    expect(body.data.content).toContain("review by katherine");
     expect((await store.readState()).records[ID]?.resolvedBy).toBe("review by katherine");
   });
 
@@ -6869,6 +7357,21 @@ describe("handleInteraction — resolve and reopen", () => {
     );
     expect((await response.json() as { data: { content: string } }).data.content.toLowerCase()).toContain("back");
     expect((await store.readState()).records[ID]?.resolvedAt).toBeNull();
+  });
+
+  it("refuses to reopen a row resolved more than config.reopenWindowMs ago", async () => {
+    // No test previously covered a reopen REFUSAL: if the renderer's window ever
+    // exceeded the handler's, the digest would offer options that always answer
+    // "cannot be reopened from here" and nothing would go red.
+    const resolved = resolveRecord(record(), T0 - 30 * 3600_000, "cleared by Jolie");
+    const { store } = makeStore([resolved]);
+    const response = await handleInteraction(
+      componentRequest("digest:resolve", `reopen:${ID}:${T0 - 3 * DAY}`),
+      deps(store),
+    );
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("cannot be reopened");
+    expect((await store.readState()).records[ID]?.resolvedAt).not.toBeNull();
   });
 
   it("reports not-found for a record that has been purged", async () => {
@@ -6912,8 +7415,6 @@ export interface InteractionDeps {
   /** Injectable so tests need not sign real payloads; defaults to the real check. */
   verify?: (body: string, signature: string | null, timestamp: string | null, key: string) => Promise<boolean>;
 }
-
-const REOPEN_WINDOW_MS = 24 * 60 * 60_000;
 
 interface Interaction {
   type: number;
@@ -7004,7 +7505,11 @@ async function handleComponent(interaction: Interaction, deps: InteractionDeps) 
 
   if (customId === CUSTOM_IDS.resolve) {
     if (reopen) {
-      if (record.resolvedAt === null || now - record.resolvedAt > REOPEN_WINDOW_MS) {
+      // Read from config, not a locally hand-written literal — the renderer decides
+      // which rows are OFFERED as reopen options and this decides which are
+      // ACCEPTED; the two numbers must be the same, and a config field with one
+      // definition is what makes that true instead of merely hoped-for.
+      if (record.resolvedAt === null || now - record.resolvedAt > deps.config.reopenWindowMs) {
         return ephemeral(`**${record.title}** cannot be reopened from here — resolve it again with the command.`);
       }
       const result = await deps.store.apply([{ kind: "reopen", id: decoded.id, at: now }], {
@@ -7063,11 +7568,23 @@ function describe(result: CommandResult | undefined, title: string, action: "cla
 
 - [ ] **Step 4: Add `Reopen` options to the resolve menu**
 
+**First, add `reopenWindowMs` to the live `config/config.ts`.** Task 1 already shipped this file (it is not a snippet to be created fresh here) — add the field to both the `Config` interface and the exported `config` object by hand:
+
+```ts
+// interface Config: add alongside the other duration fields
+  reopenWindowMs: number;
+
+// export const config: add alongside retentionMs
+  reopenWindowMs: 24 * HOUR,
+```
+
+This is purely additive and `tests/core/config.test.ts` already guards field shape/ordering, so it does not disturb anything Task 1 already committed. Both the renderer (below) and the handler read this one field, so the "offered" window and the "accepted" window cannot drift apart the way two hand-written literals could.
+
 Task 8's renderer builds the resolve menu from open rows only. Add the recently-resolved rows so a mis-resolve is recoverable. In `src/core/render/digest.ts`, after `resolveChoices` is computed:
 
 ```ts
   const reopenChoices = records
-    .filter((r) => r.resolvedAt !== null && now - r.resolvedAt <= 24 * 60 * 60_000)
+    .filter((r) => r.resolvedAt !== null && now - r.resolvedAt <= config.reopenWindowMs)
     .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
     .slice(0, Math.max(0, 25 - resolveChoices.length))
     .map((r) => ({
@@ -7097,6 +7614,25 @@ it("does not offer a reopen for a row resolved more than 24 hours ago", () => {
 ```
 
 Note this makes the `empty` scenario's "no components at all" assertion narrower than before: a digest with zero open rows but a row resolved ten minutes ago **does** carry a resolve menu, holding one reopen option. That is correct — the menu is non-empty, so there is no 400 — but re-run the fixture snapshots and confirm the `empty` scenario still has none, since its records list is genuinely empty.
+
+**This also breaks an existing, merged assertion, and the fix must be made explicitly, not discovered as a mystery red test.** `tests/core/render/digest.test.ts:47`, `it("renders the empty state when every record is resolved")`, builds `resolveRecord(rec(1, …), NOW - 2 * HOUR, "merged")` and asserts `expect(result.components).toEqual([])`. `NOW - 2 * HOUR` is inside the new 24-hour reopen window, so that record now yields one reopen option and `components` has length 1 — the existing assertion fails as soon as `reopenChoices` exists. Change it to:
+
+```ts
+it("renders the empty state when every record is resolved", () => {
+  const resolved = resolveRecord(rec(1, { team: "Power", urgency: "soon" }), NOW - 2 * HOUR, "merged");
+  const result = renderDigest({ records: [resolved], ...FRESH });
+  expect(result.components).toHaveLength(1);
+  expect(JSON.stringify(result.components)).toContain("reopen:");
+});
+
+it("renders truly no components when every record is resolved well outside the reopen window", () => {
+  const resolved = resolveRecord(rec(1, { team: "Power", urgency: "soon" }), NOW - 30 * HOUR, "merged");
+  const result = renderDigest({ records: [resolved], ...FRESH });
+  expect(result.components).toEqual([]);
+});
+```
+
+The second test keeps the "no empty String Select" invariant the original test existed to guard, now pinned outside the reopen window where it still applies.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -7208,6 +7744,15 @@ describe("assertMessageContentIntent", () => {
     expect(await assertMessageContentIntent(new DiscordRest("tok"))).toMatchObject({ code: "INTENT_MISSING" });
   });
 
+  it("passes against the raw documented bit value, not just the constant ANDed with itself", async () => {
+    // `{ flags: FLAG_MESSAGE_CONTENT }` above ANDs the constant against itself —
+    // (x & x) !== 0 holds for ANY non-zero x, so that fixture passes even for the
+    // wrong bit position (as shipped once in Task 13 — see rest.test.ts). A raw
+    // literal is the only fixture that can catch the constant itself being wrong.
+    stubApplication({ id: "app", flags: 262144 });
+    expect(await assertMessageContentIntent(new DiscordRest("tok"))).toEqual({ ok: true, limited: false });
+  });
+
   it("reports UNREACHABLE rather than INTENT_MISSING when the call fails", async () => {
     stubApplication({}, 500);
     expect(await assertMessageContentIntent(new DiscordRest("tok"))).toMatchObject({ ok: false, code: "UNREACHABLE" });
@@ -7261,16 +7806,16 @@ import { renderReviewList } from "../../src/handlers/reviewList.js";
 import { emptyState } from "../../src/store/apply.js";
 import type { StoreState } from "../../src/store/types.js";
 
-const T0 = 1_756_641_600_000;
+const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 
-function record(number: number): PrRecord {
+function record(number: number, overrides: { title?: string } = {}): PrRecord {
   return {
     ...newScannedRecord({
       pr: { owner: "paranext", repo: "paranext-core", number },
       channelId: "c",
       messageId: `m-${number}`,
       messageTimestamp: T0 - 86_400_000,
-      title: `PT-${number} A change`,
+      title: overrides.title ?? `PT-${number} A change`,
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
@@ -7294,9 +7839,17 @@ describe("renderReviewList", () => {
   });
 
   it("shows rows the digest would have truncated", () => {
-    const many = Array.from({ length: 30 }, (_, i) => record(i + 1));
+    // Short titles keep the WHOLE 25-row body under Discord's 2000-char message
+    // limit. That matters: with 30 long-titled rows, `renderDigest`'s own
+    // "…and 10 more" line sits past the 2000-char cutoff and gets sliced off
+    // BEFORE the assertion ever sees it — so deleting the `maxRows: 200` override
+    // this test exists to prove would still leave "and 10 more" absent, for a
+    // completely different (and wrong) reason. With short titles and no
+    // truncation possible, only the override itself can make row 25 visible.
+    const many = Array.from({ length: 25 }, (_, i) => record(i + 1, { title: "x" }));
     const response = renderReviewList(state(many), config, T0);
-    expect(response.data?.content).not.toContain("and 10 more");
+    expect(response.data?.content).toContain("paranext-core#25");
+    expect(response.data?.content).not.toContain("truncated");
   });
 
   it("stays inside the 2000-character message limit and says it truncated", () => {
@@ -7358,7 +7911,7 @@ export async function handleHealth(deps: HealthDeps): Promise<Response> {
   const records = Object.values(state.records);
   const open = records.filter(isOpen);
   const lastSync = state.meta.lastSync;
-  const ageMs = lastSync === null ? null : deps.now() - lastSync;
+  const ageMs = lastSync === null ? null : deps.now - lastSync;
   const stale = ageMs === null || ageMs >= deps.staleBannerMs;
 
   const body = {
@@ -7373,7 +7926,7 @@ export async function handleHealth(deps: HealthDeps): Promise<Response> {
     digestUnpinnedReportedAt: state.meta.unpinnedReportedAt,
     lastDailyPostDate: state.meta.lastDailyPostDate,
     leaseHeld: state.meta.syncLease !== null,
-    credentials: deps.credentials.health(deps.now()),
+    credentials: deps.credentials.health(deps.now),
   };
 
   return new Response(JSON.stringify(body, null, 2), {
@@ -7550,9 +8103,11 @@ describe("scheduled", () => {
     await worker.scheduled(createScheduledController(), env, ctx);
     await waitOnExecutionContext(ctx);
 
-    // Only the intent check ran; no channel reads, no GitHub calls.
+    // Only the intent check ran; no channel reads. (A GitHub-call assertion would
+    // be vacuous here: this DO starts with zero records, so runTick's own
+    // `openRecords.length > 0` guard already skips fetchSnapshots regardless of
+    // the intent check — it isn't reachable either way in this fixture.)
     expect(calls.filter((c) => c.includes("/messages"))).toHaveLength(0);
-    expect(calls.filter((c) => c.includes("api.github.com"))).toHaveLength(0);
   });
 });
 ```
@@ -7701,24 +8256,33 @@ The order is load-bearing; several steps fail confusingly if done early.
    Intents). Self-serve below 100 guilds. Without this the bot starts and then
    scans nothing, reporting an empty list — the deploy will refuse to tick with
    `INTENT_MISSING`.
-3. Install to the server with scopes `bot` and `applications.commands`.
-4. Apply channel permission overwrites limiting the bot to the review channel and
+3. **Verify the intent actually took, against the real application.** Call
+   `GET /applications/@me` (with the bot token) and confirm bit 18
+   (`FLAG_MESSAGE_CONTENT`, value 262144) or bit 19 (`FLAG_MESSAGE_CONTENT_LIMITED`,
+   value 524288) is set in the returned `flags`. This step exists because those bit
+   positions are knowledge-based, not confirmed by a documentation lookup during
+   this plan's review — a lookup found Discord's *gateway intents* table, a
+   different bitfield, and returned no application-flag values. Live data against
+   the real application is the only real verification; do this before wiring
+   anything else to the intent check.
+4. Install to the server with scopes `bot` and `applications.commands`.
+5. Apply channel permission overwrites limiting the bot to the review channel and
    the PRD forum. Permissions needed: Send Messages, Embed Links, Read Message
    History, View Channel. **Not** Manage Messages and **not** PIN_MESSAGES.
-5. Create the GitHub App on the `paranext` org: "Pull requests: read" only,
+6. Create the GitHub App on the `paranext` org: "Pull requests: read" only,
    scoped to the allowlisted repos. Install it. Record the app ID and the
    installation ID.
-6. Convert the App private key to PKCS#8 — GitHub issues PKCS#1, which Web
+7. Convert the App private key to PKCS#8 — GitHub issues PKCS#1, which Web
    Crypto cannot import:
 
        openssl pkcs8 -topk8 -nocrypt -in github-app.private-key.pem \
          -out github-app.pkcs8.pem
 
-7. Create the public-read token on a **shared machine account, not a personal
+8. Create the public-read token on a **shared machine account, not a personal
    PAT**. Record its expiry date in docs/operations.md.
-8. Fill in the three REPLACE_WITH_* values in config/config.ts and open a PR.
-9. Create the KV namespace and put its id in wrangler.jsonc.
-10. Set the Worker secrets (never in the repo):
+9. Fill in the three REPLACE_WITH_* values in config/config.ts and open a PR.
+10. Create the KV namespace and put its id in wrangler.jsonc.
+11. Set the Worker secrets (never in the repo):
 
         wrangler secret put DISCORD_BOT_TOKEN
         wrangler secret put DISCORD_PUBLIC_KEY
@@ -7730,19 +8294,19 @@ The order is load-bearing; several steps fail confusingly if done early.
         wrangler secret put GITHUB_APP_PRIVATE_KEY   # the PKCS#8 pem
         wrangler secret put GITHUB_PUBLIC_TOKEN
 
-11. Deploy with `READ_ONLY=true` first. Watch two or three ticks in
+12. Deploy with `READ_ONLY=true` first. Watch two or three ticks in
     `wrangler tail` and read the body it says it would post. Nothing is written.
-12. Set `READ_ONLY=false`. Wait for the first refresh to post the digest, then
+13. Set `READ_ONLY=false`. Wait for the first refresh to post the digest, then
     **pin that message by hand**.
-13. Set the Discord interactions endpoint URL to `https://<worker>/interactions`.
+14. Set the Discord interactions endpoint URL to `https://<worker>/interactions`.
     Discord sends an unsigned probe and expects a 401, then a signed PING.
-14. Register `/review-list` only:
+15. Register `/review-list` only:
 
         npx tsx scripts/register-commands.ts
 
     `/review-request` is registered with `--all` only when moving past shadow
     mode.
-15. Confirm `https://<worker>/health` returns 200 with a recent `lastSync`.
+16. Confirm `https://<worker>/health` returns 200 with a recent `lastSync`.
 ```
 
 - [ ] **Step 4: Write `docs/operations.md`**
@@ -7753,7 +8317,7 @@ One section per failure, each with the actual commands:
 - **The digest was unpinned.** Reported once per unpinning. Re-pin it; the latch resets automatically on the next tick that sees it pinned.
 - **Rows are not leaving the list.** Check `/health` for `syncPaused` and `credentials`. A `failedClosed` credential means a 401 was seen and retrying has stopped by design — fix the credential and redeploy to reset it.
 - **The list has gone stale.** `/health` returns 503 with `lastSyncAgeMs`. Check `wrangler tail` for a lease that is stuck; a lease older than 15 minutes is broken automatically.
-- **Rotating credentials.** Which secret, what the blast radius is, and that the App private key age (not a token expiry) is the number to watch.
+- **Rotating credentials.** Which secret, what the blast radius is, and that the App private key age (not a token expiry) is the number to watch. **Track the key's age by hand, in this document** (record the date it was created or last rotated): `/health` reports `credentials.app.tokenExpiresInMs`, an installation-token expiry, never a key age — key creation time is not derivable from a PEM, so the endpoint has no way to report it. A key rotated late is caught by whoever reads this document, not by the health endpoint.
 - **Adding a repo, adding a team.** A one-line PR to `config/config.ts`.
 - **Store data lost.** The documented rebuild: re-scan the lookback window and read the bot's own past request messages.
 - **The named second owner.** Secrets, the Cloudflare account and Discord permissions must be held by at least two people. **Name them here.** Otherwise the tool dies the first time its author is on leave and the digest gets deleted.

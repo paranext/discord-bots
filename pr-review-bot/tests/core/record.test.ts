@@ -1,0 +1,192 @@
+import { describe, expect, it } from "vitest";
+import {
+  isOpen,
+  markRequested,
+  newScannedRecord,
+  recordId,
+  reopenRecord,
+  resolveRecord,
+  type PrRecord,
+} from "../../src/core/record.js";
+
+const T0 = 1_756_000_000_000;
+const HOUR = 3_600_000;
+
+function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
+  return {
+    owner: "paranext",
+    repo: "paranext-core",
+    number: 2695,
+    channelId: "chan",
+    messageId: "msg",
+    team: "Simple",
+    urgency: "thisWeek",
+    prdThreadId: null,
+    note: null,
+    requesterId: "user-1",
+    requesterName: "Jolie",
+    firstRequestedAt: T0,
+    lastRequestedAt: T0,
+    requestCount: 1,
+    claimedBy: null,
+    claimedByName: null,
+    claimedAt: null,
+    lastClaimedByName: null,
+    claimClearedAt: null,
+    syncPausedSince: null,
+    resolvedAt: null,
+    resolvedBy: null,
+    resolutionHistory: [],
+    title: "PT-4363 Internet Settings UI Enhancements",
+    prAuthorLogin: "jolie",
+    isDraft: false,
+    source: "command",
+    lastSyncedAt: T0,
+    ...overrides,
+  };
+}
+
+describe("recordId", () => {
+  it("is owner/repo/number, lowercased", () => {
+    expect(recordId(commanded({ owner: "Paranext" }))).toBe("paranext/paranext-core/2695");
+  });
+});
+
+describe("resolve and reopen", () => {
+  it("resolving sets both fields and closes the record", () => {
+    const r = resolveRecord(commanded(), T0 + HOUR, "review by Katherine");
+    expect(r.resolvedAt).toBe(T0 + HOUR);
+    expect(r.resolvedBy).toBe("review by Katherine");
+    expect(isOpen(r)).toBe(false);
+  });
+
+  it("resolving clears any claim, so a resolved row cannot sit in Being reviewed", () => {
+    const claimed = commanded({ claimedBy: "u2", claimedByName: "Ira", claimedAt: T0 });
+    const r = resolveRecord(claimed, T0 + HOUR, "review by Katherine");
+    expect(r.claimedBy).toBeNull();
+    expect(r.claimedAt).toBeNull();
+  });
+
+  it("reopening clears both fields and appends the prior resolution to history", () => {
+    const resolved = resolveRecord(commanded(), T0 + HOUR, "review by Katherine");
+    const reopened = reopenRecord(resolved, T0 + 2 * HOUR);
+    expect(reopened.resolvedAt).toBeNull();
+    expect(reopened.resolvedBy).toBeNull();
+    expect(isOpen(reopened)).toBe(true);
+    expect(reopened.resolutionHistory).toEqual([
+      { resolvedAt: T0 + HOUR, resolvedBy: "review by Katherine" },
+    ]);
+  });
+
+  it("reopening never touches firstRequestedAt", () => {
+    const resolved = resolveRecord(commanded(), T0 + HOUR, "manual by Jolie");
+    expect(reopenRecord(resolved, T0 + 2 * HOUR).firstRequestedAt).toBe(T0);
+  });
+
+  it("reopening an already-open record is a no-op that appends nothing", () => {
+    const open = commanded();
+    expect(reopenRecord(open, T0 + HOUR)).toEqual(open);
+  });
+
+  it("labels an unlabeled resolution 'unknown' in history rather than losing the entry", () => {
+    const resolved = { ...resolveRecord(commanded(), T0 + HOUR, "review by Katherine"), resolvedBy: null };
+    const reopened = reopenRecord(resolved, T0 + 2 * HOUR);
+    expect(reopened.resolutionHistory).toEqual([{ resolvedAt: T0 + HOUR, resolvedBy: "unknown" }]);
+  });
+
+  it("accumulates history across two resolve/reopen rounds", () => {
+    let r = resolveRecord(commanded(), T0 + HOUR, "review by Katherine");
+    r = reopenRecord(r, T0 + 2 * HOUR);
+    r = resolveRecord(r, T0 + 3 * HOUR, "review by Ira");
+    r = reopenRecord(r, T0 + 4 * HOUR);
+    expect(r.resolutionHistory).toHaveLength(2);
+    expect(r.resolutionHistory[1]?.resolvedBy).toBe("review by Ira");
+  });
+});
+
+describe("markRequested", () => {
+  const fields = {
+    team: "Power" as const,
+    urgency: "blocking" as const,
+    prdThreadId: "thread-1",
+    note: "blocks the release cut",
+    requesterId: "user-2",
+    requesterName: "Ira",
+    channelId: "chan",
+    messageId: "msg-2",
+  };
+
+  it("updates lastRequestedAt and increments the count", () => {
+    const r = markRequested(commanded(), T0 + HOUR, fields);
+    expect(r.lastRequestedAt).toBe(T0 + HOUR);
+    expect(r.requestCount).toBe(2);
+  });
+
+  it("never changes firstRequestedAt, so re-requesting is not penalised in the sort", () => {
+    expect(markRequested(commanded(), T0 + 8 * HOUR, fields).firstRequestedAt).toBe(T0);
+  });
+
+  it("clears any existing claim, so a stale claim cannot hide the new request", () => {
+    const claimed = commanded({ claimedBy: "u3", claimedByName: "Kat", claimedAt: T0 });
+    const r = markRequested(claimed, T0 + HOUR, fields);
+    expect(r.claimedBy).toBeNull();
+    expect(r.claimedAt).toBeNull();
+  });
+
+  it("reopens a resolved record and preserves the prior resolution", () => {
+    const resolved = resolveRecord(commanded(), T0 + HOUR, "review by Katherine");
+    const r = markRequested(resolved, T0 + 2 * HOUR, fields);
+    expect(isOpen(r)).toBe(true);
+    expect(r.resolutionHistory).toHaveLength(1);
+  });
+
+  it("upgrades a scanned record to a commanded one in place", () => {
+    const scanned = newScannedRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
+      channelId: "chan",
+      messageId: "msg",
+      messageTimestamp: T0,
+      title: "PT-4363",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    const r = markRequested(scanned, T0 + HOUR, fields);
+    expect(r.source).toBe("command");
+    expect(r.team).toBe("Power");
+    expect(r.urgency).toBe("blocking");
+    expect(r.note).toBe("blocks the release cut");
+  });
+});
+
+describe("newScannedRecord", () => {
+  it("seeds lastRequestedAt from the message timestamp, not the scan time", () => {
+    const r = newScannedRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
+      channelId: "chan",
+      messageId: "msg",
+      messageTimestamp: T0,
+      title: "PT-4363",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    expect(r.lastRequestedAt).toBe(T0);
+    expect(r.firstRequestedAt).toBe(T0);
+  });
+
+  it("has no team, urgency, prd or note, because nobody supplied them", () => {
+    const r = newScannedRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
+      channelId: "chan",
+      messageId: "msg",
+      messageTimestamp: T0,
+      title: "PT-4363",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    expect(r.team).toBeNull();
+    expect(r.urgency).toBeNull();
+    expect(r.prdThreadId).toBeNull();
+    expect(r.note).toBeNull();
+    expect(r.source).toBe("scanned");
+  });
+});

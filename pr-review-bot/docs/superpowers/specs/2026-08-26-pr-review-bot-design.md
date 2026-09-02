@@ -469,8 +469,16 @@ Every five minutes:
    until fewer than 100 messages return or the per-tick page cap is hit**.
    `GET /channels/{id}/messages` caps at 100 per call, so a single call per
    channel silently drops messages on a busy interval and then advances the cursor
-   past them. On hitting the cap, advance the cursor only to the oldest fully
-   processed message.
+   past them. On hitting the cap, never advance the cursor past a message that
+   was not examined — but what that means differs by direction. A steady-state
+   forward walk (`after=<cursor>`) reads contiguous, ascending pages, so the
+   cursor advances to the **newest** id of the last fully processed page:
+   nothing in between was skipped, and advancing to the *oldest* processed
+   message instead would re-scan the pages just read on the next tick, wasting
+   its page budget for no benefit. A first-run backward walk (`before=`, used
+   only because there is no stored cursor yet) instead fixes the cursor at the
+   newest message of the very first page fetched, so the following tick can
+   switch to paging forward from it rather than repeating the backward walk.
 7. Refresh the cached PRD thread list.
 8. Read `:code_review:` reactions for unclaimed records, **up to a fixed
    per-tick budget**, oldest-unchecked first. This is a secondary path; the

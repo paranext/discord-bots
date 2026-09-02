@@ -1,0 +1,27 @@
+{
+  "data": {
+    "p0": {
+      "pullRequest": {
+        "number": 341,
+        "title": "PT-341",
+        "isDraft": false,
+        "merged": false,
+        "state": "OPEN",
+        "author": {
+          "login": "jolie"
+        },
+        "reviews": {
+          "nodes": []
+        }
+      }
+    },
+    "p1": null
+  },
+  "errors": [
+    {
+      "type": "NOT_FOUND",
+      "path": ["p1"],
+      "message": "Could not resolve to a PullRequest with the number of 999."
+    }
+  ]
+}

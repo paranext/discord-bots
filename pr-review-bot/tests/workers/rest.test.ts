@@ -1,0 +1,120 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { config } from "../../config/config.js";
+import {
+  DiscordRest,
+  FLAG_MESSAGE_CONTENT,
+  FLAG_MESSAGE_CONTENT_LIMITED,
+  makeDigestPublisher,
+} from "../../src/discord/rest.js";
+
+interface Call { url: string; method: string; body: unknown; headers: Record<string, string> }
+
+function stubFetch(responses: { status: number; json?: unknown }[]) {
+  const calls: Call[] = [];
+  let index = 0;
+  vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
+    calls.push({
+      url: String(input),
+      method: init.method ?? "GET",
+      body: init.body === undefined ? undefined : JSON.parse(String(init.body)),
+      headers: init.headers as Record<string, string>,
+    });
+    const response = responses[Math.min(index, responses.length - 1)]!;
+    index += 1;
+    return new Response(response.json === undefined ? null : JSON.stringify(response.json), {
+      status: response.status,
+    });
+  });
+  return calls;
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("intent flags", () => {
+  // Checked against Discord's documented values, not against themselves — the startup
+  // intent assertion (Task 19) ANDs a fixture flag against these same constants, so a
+  // self-consistent fixture there could not have caught either bit being wrong.
+  it("pins the application flag bits to their documented values", () => {
+    expect(FLAG_MESSAGE_CONTENT).toBe(262144);
+    expect(FLAG_MESSAGE_CONTENT_LIMITED).toBe(524288);
+  });
+});
+
+describe("DiscordRest", () => {
+  it("sends the bot token and a User-Agent on every call", async () => {
+    const calls = stubFetch([{ status: 200, json: [] }]);
+    await new DiscordRest("tok").getMessages("chan", {});
+    expect(calls[0]!.headers.Authorization).toBe("Bot tok");
+    expect(calls[0]!.headers["User-Agent"]).toContain("pr-review-bot");
+  });
+
+  it("requests messages with limit 100 and an after cursor", async () => {
+    const calls = stubFetch([{ status: 200, json: [] }]);
+    await new DiscordRest("tok").getMessages("chan", { after: "9" });
+    expect(calls[0]!.url).toContain("/channels/chan/messages?");
+    expect(calls[0]!.url).toContain("limit=100");
+    expect(calls[0]!.url).toContain("after=9");
+  });
+
+  it("requests messages before a cursor when walking backwards", async () => {
+    const calls = stubFetch([{ status: 200, json: [] }]);
+    await new DiscordRest("tok").getMessages("chan", { before: "9" });
+    expect(calls[0]!.url).toContain("before=9");
+  });
+
+  it("lists pins from the 2026 route, not the deprecated one", async () => {
+    const calls = stubFetch([{ status: 200, json: { items: [] } }]);
+    await new DiscordRest("tok").getPins("chan");
+    expect(calls[0]!.url).toBe("https://discord.com/api/v10/channels/chan/messages/pins");
+  });
+
+  it("returns a typed failure rather than throwing on a non-2xx", async () => {
+    stubFetch([{ status: 403, json: { message: "Missing Access" } }]);
+    const result = await new DiscordRest("tok").getMessages("chan", {});
+    expect(result).toMatchObject({ ok: false, status: 403 });
+  });
+
+  it("handles a 204 with no body", async () => {
+    stubFetch([{ status: 204 }]);
+    const result = await new DiscordRest("tok").patchMessage("chan", "m", { embeds: [], components: [] });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("makeDigestPublisher", () => {
+  const payload = { embeds: [{ color: 1, description: "x" }], components: [] };
+
+  it("PATCHes the digest channel and reports success", async () => {
+    const calls = stubFetch([{ status: 200, json: { id: "m1" } }]);
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
+    expect(await publisher.patchDigest("m1", payload)).toEqual({ ok: true });
+    expect(calls[0]!.method).toBe("PATCH");
+    expect(calls[0]!.body).toEqual(payload);
+  });
+
+  it("surfaces a 404 so commitTick can recreate the message", async () => {
+    stubFetch([{ status: 404, json: { message: "Unknown Message" } }]);
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
+    expect(await publisher.patchDigest("m1", payload)).toEqual({ ok: false, status: 404 });
+  });
+
+  it("posts the daily message as plain content, not an embed", async () => {
+    const calls = stubFetch([{ status: 200, json: { id: "m2" } }]);
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
+    await publisher.postDaily("3 PRs waiting");
+    expect(calls[0]!.body).toEqual({ content: "3 PRs waiting" });
+  });
+
+  it("returns an empty pin list when the pins call fails, so a 403 does not crash the tick", async () => {
+    stubFetch([{ status: 403, json: {} }]);
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
+    expect(await publisher.listPinnedMessageIds()).toEqual([]);
+  });
+
+  it("builds a jump link the daily post can use", () => {
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild-1", config);
+    expect(publisher.messageUrl("m1")).toBe(
+      `https://discord.com/channels/guild-1/${config.digestChannelId}/m1`,
+    );
+  });
+});

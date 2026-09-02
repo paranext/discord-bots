@@ -1,0 +1,18 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderDigest — capacity > matches a stored snapshot 1`] = `
+[
+  "**Needs review** · 4 open · updated <t:1758591900:R>
+__Power__
+🔥 Blocking · [PT-177 Some change](https://github.com/paranext/paranext-core/pull/177) · <t:1758332800:R>
+     paranext-core#177 · <#t-1>
+     _needs a P10 build before Thursday's demo_
+🫕 Soon · [PT-2701 Some change](https://github.com/paranext/paranext-core/pull/2701) · <t:1758332800:R>
+     paranext-core#2701
+__Simple__
+🧊 This week · [PT-2695 Some change](https://github.com/paranext/paranext-core/pull/2695) · <t:1758332800:R>
+     paranext-core#2695 · draft
+**Being reviewed** (1)
+👀 [PT-3408 Some change](https://github.com/paranext/paranext-core/pull/3408) · Katherine · 🔥 Power",
+]
+`;
