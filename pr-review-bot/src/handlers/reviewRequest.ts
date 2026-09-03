@@ -126,16 +126,26 @@ async function reject(
   let stashKey: string | null = null;
 
   if (key !== null && userId !== null) {
-    await deps.store.apply(
-      [{
-        kind: "stashSubmission",
-        key,
-        entry: { userId, values, expiresAt: now + deps.config.retryStashMs },
-        now,
-      }],
-      { now, rerender: false },
-    );
-    stashKey = key;
+    // Guarded because the stash is a CONVENIENCE and the rejection is the
+    // answer. A throw here used to escape `reject` into `finishSubmit`'s catch,
+    // which replaced a precise, offline-decided "that repo is not on the
+    // allowlist" with "the PR may already be tracked" — false, since nothing was
+    // recorded, and it hides the one thing the user needs to know. Falling
+    // through with `stashKey = null` costs them the prefill, not the answer.
+    try {
+      await deps.store.apply(
+        [{
+          kind: "stashSubmission",
+          key,
+          entry: { userId, values, expiresAt: now + deps.config.retryStashMs },
+          now,
+        }],
+        { now, rerender: false },
+      );
+      stashKey = key;
+    } catch (error) {
+      console.warn(`[REQUEST] could not stash ${key} for retry: ${String(error)}`);
+    }
   }
 
   const rendered = renderRejection({ rejection, values, stashKey, config: deps.config });

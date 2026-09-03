@@ -22,7 +22,7 @@ function record(overrides: Partial<PrRecord> = {}): PrRecord {
 
 describe("applyClaim", () => {
   it("records the claimer and the time", () => {
-    const outcome = applyClaim(record(), "u1", "Katherine", T0 + HOUR);
+    const outcome = applyClaim(record(), "u1", "Katherine", T0 + HOUR, "menu");
     expect(outcome.kind).toBe("claimed");
     if (outcome.kind !== "claimed") throw new Error("unreachable");
     expect(outcome.record.claimedBy).toBe("u1");
@@ -32,7 +32,7 @@ describe("applyClaim", () => {
 
   it("clears previously-claimed markers, so a re-claimed row stops rendering them", () => {
     const previously = record({ lastClaimedByName: "Ira", claimClearedAt: T0 });
-    const outcome = applyClaim(previously, "u1", "Katherine", T0 + HOUR);
+    const outcome = applyClaim(previously, "u1", "Katherine", T0 + HOUR, "menu");
     if (outcome.kind !== "claimed") throw new Error("unreachable");
     expect(outcome.record.lastClaimedByName).toBeNull();
     expect(outcome.record.claimClearedAt).toBeNull();
@@ -40,7 +40,7 @@ describe("applyClaim", () => {
 
   it("reports the holder when someone else already claimed it — first write wins", () => {
     const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    expect(applyClaim(held, "u2", "Ira", T0 + HOUR)).toEqual({
+    expect(applyClaim(held, "u2", "Ira", T0 + HOUR, "menu")).toEqual({
       kind: "already-claimed",
       byName: "Katherine",
     });
@@ -48,19 +48,19 @@ describe("applyClaim", () => {
 
   it("is idempotent when the same person claims twice, without moving claimedAt", () => {
     const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    const outcome = applyClaim(held, "u1", "Katherine", T0 + HOUR);
+    const outcome = applyClaim(held, "u1", "Katherine", T0 + HOUR, "menu");
     if (outcome.kind !== "claimed") throw new Error("unreachable");
     expect(outcome.record.claimedAt).toBe(T0);
   });
 
   it("falls back to 'someone' when the existing claimer's display name is unknown", () => {
     const held = record({ claimedBy: "u1", claimedByName: null, claimedAt: T0 });
-    expect(applyClaim(held, "u2", "Ira", T0 + HOUR)).toEqual({ kind: "already-claimed", byName: "someone" });
+    expect(applyClaim(held, "u2", "Ira", T0 + HOUR, "menu")).toEqual({ kind: "already-claimed", byName: "someone" });
   });
 
   it("refuses to claim a resolved record", () => {
     const resolved = resolveRecord(record(), T0, "merged");
-    expect(applyClaim(resolved, "u1", "Katherine", T0 + HOUR)).toEqual({ kind: "not-open" });
+    expect(applyClaim(resolved, "u1", "Katherine", T0 + HOUR, "menu")).toEqual({ kind: "not-open" });
   });
 });
 
@@ -117,5 +117,45 @@ describe("clearStaleClaim", () => {
   it("is a no-op on an unclaimed record", () => {
     const open = record();
     expect(clearStaleClaim(open, T0 + STALE, STALE)).toEqual(open);
+  });
+});
+
+describe("claimSource", () => {
+  it("records how the claim was made", () => {
+    const menu = applyClaim(record(), "u1", "Katherine", T0, "menu");
+    if (menu.kind !== "claimed") throw new Error("unreachable");
+    expect(menu.record.claimSource).toBe("menu");
+
+    const reaction = applyClaim(record(), "u1", "Katherine", T0, "reaction");
+    if (reaction.kind !== "claimed") throw new Error("unreachable");
+    expect(reaction.record.claimSource).toBe("reaction");
+  });
+
+  it("unprimes the reaction state on a MENU claim, so a stale reaction cannot inherit the row", () => {
+    // The record leaves the polling set the moment it is menu-claimed. Anything
+    // that happens to its reactions while it is unpolled is unobserved, so the
+    // first poll after it comes back must prime rather than diff.
+    const observed = record({ lastReactors: ["u9"] });
+    const outcome = applyClaim(observed, "u1", "Katherine", T0, "menu");
+    if (outcome.kind !== "claimed") throw new Error("unreachable");
+    expect(outcome.record.lastReactors).toBeNull();
+  });
+
+  it("keeps the reaction state on a REACTION claim — the same sync just observed it", () => {
+    const observed = record({ lastReactors: ["u1"] });
+    const outcome = applyClaim(observed, "u1", "Katherine", T0, "reaction");
+    if (outcome.kind !== "claimed") throw new Error("unreachable");
+    expect(outcome.record.lastReactors).toEqual(["u1"]);
+  });
+
+  it("is cleared by every path that clears the claim", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0, claimSource: "reaction" });
+
+    const unclaimed = applyUnclaim(held, "u1");
+    if (unclaimed.kind !== "released") throw new Error("unreachable");
+    expect(unclaimed.record.claimSource).toBeNull();
+
+    expect(clearStaleClaim(held, T0 + STALE, STALE).claimSource).toBeNull();
+    expect(resolveRecord(held, T0 + HOUR, "github").claimSource).toBeNull();
   });
 });

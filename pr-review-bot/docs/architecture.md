@@ -225,7 +225,21 @@ previous cache is left in place and the tick logs `[PRD_CACHE_SKIPPED]`
 (naming every endpoint that failed) plus an `[PRD_CACHE]` line with the raw
 active/archived thread counts every tick — because a stale dropdown is a
 working dropdown and an empty one is the outage this cache exists to
-prevent. Step 8 (reaction reads) is still plan 3.
+prevent.
+
+Step 8 reads `:code_review:` reactions for eligible records — open, with a
+`messageId` no other record shares, and either unclaimed or claimed by a
+reaction — oldest-unchecked first, under a per-tick allowance that sheds first
+when the tick nears its subrequest ceiling. It does not ask "who is reacting?"
+but "what changed since the last poll?": each record stores the reactor ids seen
+at its previous poll (`PrRecord.lastReactors`), and the store diffs the observed
+set against it. Adding the reaction claims; removing it releases a claim that
+was made by reacting (`PrRecord.claimSource` is what keeps a menu claim out of
+the reaction path's reach); a release promotes anyone still standing on the
+message. A null `lastReactors` means unprimed — the record has entered or
+re-entered the polling set and nothing has been observed yet — so that poll
+records the set and acts on nothing. See
+`adr-reaction-diff-not-presence`.
 
 ## Spec section → implementation file
 
@@ -240,7 +254,7 @@ prevent. Step 8 (reaction reads) is still plan 3.
 | Refresh loop | `src/handlers/scheduled.ts` (`runTick`) |
 | Rendering reads the committed state | `src/store/memory.ts` (`commitTick`), `src/store/do.ts` |
 | Data model | `src/core/record.ts`, `src/store/types.ts` |
-| Claiming and removal | `src/core/claims.ts`, `src/handlers/interactions.ts`, `src/core/ranking.ts` (menu population) |
+| Claiming and removal | `src/core/claims.ts`, `src/handlers/interactions.ts`, `src/core/ranking.ts` (menu population), `src/core/reactions.ts` (reaction claim/release path) |
 | Message scanning | `src/discord/scan.ts` |
 | Failure modes | `src/store/memory.ts` (`commitTick`), `src/github/credentials.ts`, `src/handlers/health.ts` |
 | Permissions and security | `src/discord/verify.ts`, `src/handlers/startup.ts`, `docs/setup.md` |
@@ -275,6 +289,3 @@ cause.
 - No KV namespace, no `META` binding. See `adr-no-kv-namespace` in
   `docs/architecture-decisions.md`.
 - No gateway connection (see above).
-- The `:code_review:` reaction claim path (a secondary, best-effort way to
-  claim a PR) is a later plan. The digest select menu is the primary and only
-  currently-wired claim path.

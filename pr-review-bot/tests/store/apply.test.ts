@@ -435,10 +435,10 @@ describe("purity", () => {
   });
 });
 
-describe("schema version 3", () => {
+describe("schema version 4", () => {
   it("emptyState carries both new meta fields", () => {
     const state = emptyState();
-    expect(state.schemaVersion).toBe(3);
+    expect(state.schemaVersion).toBe(4);
     expect(state.meta.prdCache).toBeNull();
     expect(state.meta.retryStash).toEqual({});
   });
@@ -469,6 +469,174 @@ describe("setRequestMessageId", () => {
   it("reports not-found for a record that is gone", () => {
     const result = applyCommands(emptyState(), [{ kind: "setRequestMessageId", id: "nope/nope/1", messageId: "m" }], config);
     expect(result.results[0]).toEqual({ kind: "not-found" });
+  });
+
+  it("nulls lastReactors when the id actually changes (Finding 2) — the observation described the OLD message", () => {
+    const seeded = applyCommands(
+      emptyState(),
+      [{ kind: "upsertRequest", pr: PR, at: T0, fields: FIELDS, title: "T", prAuthorLogin: "jolie", isDraft: false }],
+      config,
+    ).state;
+    const primed = {
+      ...seeded,
+      records: { ...seeded.records, [ID]: { ...seeded.records[ID]!, lastReactors: ["u1"] } },
+    };
+
+    const changed = applyCommands(primed, [{ kind: "setRequestMessageId", id: ID, messageId: "m-9" }], config);
+    expect(changed.state.records[ID]?.lastReactors).toBeNull();
+
+    // A no-op write (same id) leaves a real observation alone.
+    const unchanged = applyCommands(primed, [{ kind: "setRequestMessageId", id: ID, messageId: primed.records[ID]!.messageId }], config);
+    expect(unchanged.state.records[ID]?.lastReactors).toEqual(["u1"]);
+  });
+});
+
+describe("reactionSync", () => {
+  it("claims for a newly present reactor and reports it", () => {
+    const base = withRecord({ lastReactors: [] });
+    const out = run(base, {
+      kind: "reactionSync",
+      id: ID,
+      reactors: [{ id: "u1", name: "Katherine" }],
+      now: T0,
+    });
+    expect(out.state.records[ID]?.claimedBy).toBe("u1");
+    expect(out.results[0]).toEqual({
+      kind: "reaction-sync",
+      id: ID,
+      claimed: ["u1"],
+      released: [],
+      superseded: [],
+    });
+  });
+
+  it("wiring: reactionSync loses to an (unreachable) menu-held record with a non-null lastReactors", () => {
+    // Not a reachable end-to-end scenario: `applyClaim` nulls `lastReactors`
+    // on every menu claim (src/core/claims.ts), and Finding 1's fix makes
+    // `syncReactions` re-null it on every ineligible record besides — so a
+    // real menu claim is unprimed by the time any reactionSync reaches it,
+    // and produces no `superseded` report. This test builds the state
+    // `applyClaim` would never produce (`claimSource: "menu"` with a real
+    // `lastReactors`) purely to exercise the command's dispatch and the
+    // arbitration logic in `syncReactions` in isolation — it is a wiring
+    // test, not a guarantee about what the live pipeline can reach. The
+    // reachable version of "an existing claim beats an arriving reactor" is
+    // `tests/workers/scheduled.test.ts`'s `heldByReaction` fixture.
+    const held = withRecord({
+      lastReactors: [],
+      claimedBy: "u9",
+      claimedByName: "Ira",
+      claimedAt: T0,
+      claimSource: "menu",
+    });
+    const out = run(held, {
+      kind: "reactionSync",
+      id: ID,
+      reactors: [{ id: "u1", name: "Katherine" }],
+      now: T0,
+    });
+    expect(out.state.records[ID]?.claimedBy).toBe("u9");
+    expect(out.results[0]).toEqual({
+      kind: "reaction-sync",
+      id: ID,
+      claimed: [],
+      released: [],
+      superseded: [{ userId: "u1", byName: "Ira" }],
+    });
+  });
+
+  it("returns not-found for a record that is gone", () => {
+    const out = run(withRecord(), {
+      kind: "reactionSync",
+      id: "paranext/paranext-core/404",
+      reactors: [],
+      now: T0,
+    });
+    expect(out.results[0]).toEqual({ kind: "not-found" });
+  });
+
+  it("stamps the check time even when nothing changed", () => {
+    const out = run(withRecord({ lastReactors: [] }), {
+      kind: "reactionSync",
+      id: ID,
+      reactors: [],
+      now: T0 + 1,
+    });
+    expect(out.state.records[ID]?.reactionCheckedAt).toBe(T0 + 1);
+  });
+
+  it("passes reactors: null through unmodified — stamps reactionCheckedAt and leaves lastReactors untouched", () => {
+    // A failed read is not an observation. A stray `?? []` here would be
+    // invisible to every other test in this block, since they all pass a real
+    // array.
+    const out = run(withRecord({ lastReactors: ["u9"] }), {
+      kind: "reactionSync",
+      id: ID,
+      reactors: null,
+      now: T0 + 1,
+    });
+    expect(out.state.records[ID]?.reactionCheckedAt).toBe(T0 + 1);
+    expect(out.state.records[ID]?.lastReactors).toEqual(["u9"]);
+  });
+
+  it("regression (Finding 1a): resolve-then-poll in the SAME batch must not resurrect lastReactors, so a reopen still primes", () => {
+    // applySnapshot's resolveRecord runs earlier in the SAME command array as
+    // step 8's reactionSync (runTick builds one array; applyCommands applies
+    // it in order). Before the fix, `stamp` wrote the observed set
+    // unconditionally, so this resolved-and-polled-in-one-batch record ended
+    // up with a real lastReactors instead of null — and a later reopen would
+    // then diff a fresh reaction against months-old "previous" reactors
+    // instead of priming, claiming for someone who never acted after reopen.
+    const base = withRecord({ lastReactors: ["u1"], reactionCheckedAt: T0 - 1 });
+    const out = run(
+      base,
+      { kind: "resolve", id: ID, by: "merged", at: T0, expectLastRequestedAt: null },
+      { kind: "reactionSync", id: ID, reactors: [{ id: "u1", name: "Katherine" }], now: T0 },
+    );
+    const resolved = out.state.records[ID]!;
+    expect(resolved.resolvedAt).toBe(T0);
+    expect(resolved.lastReactors).toBeNull();
+    expect(resolved.claimedBy).toBeNull();
+
+    // Reopen and poll again: unprimed, this poll records the set and acts on
+    // nothing — u1's standing reaction must not silently claim for them.
+    const reopened = run(out.state, { kind: "reopen", id: ID, at: T0 + 1 });
+    const polled = run(reopened.state, {
+      kind: "reactionSync", id: ID, reactors: [{ id: "u1", name: "Katherine" }], now: T0 + 2,
+    });
+    expect(polled.state.records[ID]?.claimedBy).toBeNull();
+    expect(polled.state.records[ID]?.lastReactors).toEqual(["u1"]);
+  });
+
+  it("regression (Finding 1b): a menu claim committed earlier in the SAME batch is not primed over by reactionSync", () => {
+    // Mirrors the same-batch ordering: a menu claim (step 5's territory,
+    // arriving between beginTick and finishTick) commits first, then step 8's
+    // reactionSync runs in the SAME applyCommands call. Before the fix,
+    // `stamp` wrote the freshly observed set even here, undoing the null
+    // `applyClaim` had just written and priming a diff basis for a row that
+    // is not being polled — so a reaction standing through the whole
+    // menu-hold would read as "unchanged" the moment the claim released,
+    // instead of the fresh arrival it actually is.
+    const base = withRecord({ lastReactors: [] });
+    const out = run(
+      base,
+      { kind: "claim", id: ID, userId: "u9", displayName: "Ira", at: T0, expectLastRequestedAt: null },
+      { kind: "reactionSync", id: ID, reactors: [{ id: "u1", name: "Katherine" }], now: T0 },
+    );
+    const held = out.state.records[ID]!;
+    expect(held.claimedBy).toBe("u9");
+    expect(held.claimSource).toBe("menu");
+    expect(held.lastReactors).toBeNull();
+
+    // Weeks later the menu claim is released while u1 is still reacting.
+    const afterUnclaim = run(out.state, { kind: "unclaim", id: ID, userId: "u9" });
+    const primed = run(afterUnclaim.state, {
+      kind: "reactionSync", id: ID, reactors: [{ id: "u1", name: "Katherine" }], now: T0 + 1,
+    });
+    // Unprimed correctly: this poll only records the set, claiming nobody —
+    // not even the standing reactor whose reaction predates the release.
+    expect(primed.state.records[ID]?.claimedBy).toBeNull();
+    expect(primed.state.records[ID]?.lastReactors).toEqual(["u1"]);
   });
 });
 

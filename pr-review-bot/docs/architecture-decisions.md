@@ -778,3 +778,76 @@ different link" would be actively wrong.
   slowest one in the bot (a live GitHub fetch inside a deferred interaction),
   spent to separate two cases whose fix is nearly identical either way: check
   the link, or ask whoever owns the credential.
+
+## adr-reaction-diff-not-presence
+
+**Decision.** Step 8 stores the set of reactors observed at each record's last
+poll and diffs the next observation against it, rather than checking who is
+currently reacting. `lastReactors` is nullable, and null means *unprimed*.
+
+**Why not a presence check.** Every hard case on this path is a change question,
+not a state question. A reaction is permanent; a claim is not. With a presence
+check, the standing reaction of someone whose claim auto-cleared at 48 hours
+re-claims on the very next poll, silently, forever. The suppression rule that
+fixes that ("a user may only re-claim once per record") needs its own persisted
+per-user state and still gets the removal case wrong. The diff subsumes both: an
+unchanged reaction is not an event, and a removed one is.
+
+**Why null is distinct from empty.** The diff's licence to read a reaction as
+present-tense intent is that an absence was observed in between. Across a gap
+where nothing was observed — a record menu-claimed for a week, a record resolved
+and later reopened, a fresh deploy — that licence does not exist. Treating the
+gap as `[]` makes every reaction that accumulated during it read as newly
+present, which on deploy day would claim retroactively across the whole list and
+park rows in Being reviewed under names that are wrong for 48 hours. So leaving
+the polling set nulls the field, and null-valued records prime instead of
+diffing.
+
+**Why a release promotes.** Two people react; the first claims; the second is
+told it was taken. When the first removes their reaction, the second's unchanged
+reaction can never claim under the diff's own rules — they are stranded
+holding a signal the bot has stopped reading. A sync that releases therefore
+re-runs the claim attempt across everyone still standing. Promotion is scoped to
+a sync that actually released, which is what keeps the auto-clear case correct:
+`clearStaleClaims` produces no release inside a sync, so nothing is promoted
+there.
+
+**Why a release is silent and unmarked.** No DM: you meant to do it. And no
+`claimClearedAt`/`lastClaimedByName`, so the row returns to its team section
+clean rather than tagged `previously claimed` — that tag is for the 48-hour
+auto-clear, where a row went stale on someone. Handing a review back on purpose
+is a different event and must not read like one.
+
+**Why failure handling keys on Discord's error code, not the HTTP status.**
+Exactly one branch mutates state (nulling `messageId` when the request message
+is gone), and Discord documents error codes without documenting which status
+wraps each one. `claimEmoji` is a single hardcoded snowflake, so a deleted or
+re-uploaded emoji fails on every eligible record in the same tick — if that
+surfaced as a 404 and the branch keyed on the status, one emoji deletion would
+null every message link on the list, permanently, with nothing able to rebuild
+them.
+
+**The notice's real coverage: reaction-versus-reaction only.** The spec's
+"the superseded claimer is told privately" reads as covering every loss, but
+`notifySuperseded` can only ever see a loss recorded in a `reaction-sync`
+result's `superseded` list, and `syncReactions` only populates that list when
+an *arriving* reactor loses to whoever `applyClaim` finds already holding the
+record — and by the time `syncReactions` runs, that holder is always a
+reaction claim, because a menu-claimed record never reaches it. The gap is
+upstream of `syncReactions` entirely: a menu claim (`applyClaim(..., "menu")`)
+nulls `lastReactors`, and
+`selectReactionTargets` excludes any record whose `claimedBy` is set by
+something other than a reaction. So the moment a menu claim lands, the record
+leaves the polling set — no future poll ever runs `syncReactions` against it,
+and a reaction that was already standing there, or one added afterward, is
+never diffed, never recorded as superseded, and never DM'd about. It is
+absorbed silently the next time the record re-enters the polling set (release,
+resolve-then-reopen, or a fresh migration) and gets primed from scratch.
+
+This was reviewed and accepted rather than fixed. The alternative — running
+`syncReactions`-style superseded reporting from the unprimed branch, against a
+menu-claimed record's standing reactions — would fan a DM out to every reactor
+on every menu-claimed record carrying a reaction on the very first deploy,
+which is exactly the burst that priming exists to prevent. A reactor whose
+reaction loses to a menu claim gets no notice and must re-add the reaction (or
+use the menu) to find out the row moved on without them.

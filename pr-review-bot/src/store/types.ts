@@ -4,6 +4,7 @@ import type { NewScannedInput, PrRecord, RequestFields } from "../core/record.js
 import type { ParsedPr } from "../core/urls.js";
 import type { PrdCache } from "../core/prd.js";
 import type { SubmittedValues } from "../core/submit.js";
+import type { Reactor } from "../core/reactions.js";
 
 export interface Meta {
   lastSync: number | null;
@@ -99,9 +100,11 @@ export interface StoreState {
 /** The version `emptyState()` writes and `migrateState()` upgrades to. Lives
  *  here, next to `LEASE_TIMEOUT_MS`, for the same reason: both `Store`
  *  implementations import it so they cannot drift apart. Version 1 is the
- *  pre-deploy baseline; version 2 added `Meta.digestBodyVersion`; version 3 added `Meta.prdCache` and
- *  `Meta.retryStash`. */
-export const CURRENT_SCHEMA_VERSION = 3;
+ *  pre-deploy baseline; version 2 added `Meta.digestBodyVersion`; version 3
+ *  added `Meta.prdCache` and `Meta.retryStash`; version 4 added the three
+ *  reaction fields to every RECORD — the first migration to touch `records`
+ *  rather than `meta`. */
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export type Command =
   | { kind: "upsertScanned"; input: NewScannedInput; now: number }
@@ -121,8 +124,13 @@ export type Command =
    * `requestCount`. That would land a first-time request at `requestCount: 2`
    * and move the very field the digest's staleness fence compares against, so a
    * claim on the digest that was just rendered would fail as `stale`.
+   *
+   * Step 8 also uses this to CLEAR the id, passing `messageId: null`, when
+   * Discord reports the reaction target message gone (10008): the record
+   * survives, the digest row keeps its place and loses its link, and the
+   * record drops out of the polling set for good.
    */
-  | { kind: "setRequestMessageId"; id: string; messageId: string }
+  | { kind: "setRequestMessageId"; id: string; messageId: string | null }
   /**
    * Stashes a rejected submission's values for the "Fix and retry" button,
    * pruning expired entries and capping the map in the same atomic step.
@@ -134,6 +142,20 @@ export type Command =
   | { kind: "stashSubmission"; key: string; entry: StashedSubmission; now: number }
   | { kind: "applySnapshot"; id: string; snapshot: PrSnapshot; now: number }
   | { kind: "markSyncPaused"; id: string; at: number }
+  /**
+   * Refresh-loop step 8. Carries the reactor list as OBSERVED by the tick; the
+   * store does the diffing, against committed state.
+   *
+   * The diff is not done in the handler for the same reason step 9 re-reads
+   * before rendering: a menu claim landing between `beginTick` and `finishTick`
+   * must win, and it only does if the arbitration reads what was committed.
+   *
+   * There is deliberately no `expectLastRequestedAt` staleness check, unlike
+   * `claim` and `resolve`. That check exists because a select menu's options are
+   * only as fresh as the reader's Discord client; a reaction is read live from
+   * the message and has no rendered option to go stale against.
+   */
+  | { kind: "reactionSync"; id: string; reactors: Reactor[] | null; now: number }
   | {
       kind: "claim";
       id: string;
@@ -176,7 +198,17 @@ export type CommandResult =
   | { kind: "already-claimed"; byName: string }
   | { kind: "not-found" }
   | { kind: "not-open" }
-  | { kind: "count"; count: number };
+  | { kind: "count"; count: number }
+  /** `id` is carried explicitly rather than recovered by index from the command
+   *  list: the DM names the PR, and `resultCounters` is a standing demonstration
+   *  of how easy index-alignment is to get subtly wrong. */
+  | {
+      kind: "reaction-sync";
+      id: string;
+      claimed: string[];
+      released: string[];
+      superseded: { userId: string; byName: string }[];
+    };
 
 export type DigestPayload = {
   embeds: { color: number; description: string }[];

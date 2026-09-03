@@ -1,6 +1,6 @@
 import type { Config } from "../../config/config.js";
 import { FIELD_IDS, MODAL_ID, NOTE_MAX_LENGTH, PRD_NONE, URL_MAX_LENGTH, type SubmittedValues } from "../core/submit.js";
-import type { PrdCache } from "../core/prd.js";
+import { PRD_OPTION_CAP, type PrdCache } from "../core/prd.js";
 import { CallbackType, type InteractionResponse } from "../discord/components.js";
 
 // Discord's documented caps. Clamped here rather than discovered at runtime: a
@@ -83,6 +83,21 @@ export function buildRequestModal(config: Config, prd: PrdCache | null, prefill?
     { label: "None", value: PRD_NONE },
     ...(prd?.options ?? []).map((o) => ({ label: o.name, value: o.id })),
   ];
+
+  // A prefilled thread that is no longer in the cache — it fell below the
+  // 24-option cap while the rejection sat unread, or the cache went cold — has
+  // no option to be the default of, and `min_values: 1` leaves None as the only
+  // thing left to pick. The retry path promises every field comes back exactly
+  // as typed, so the thread is carried back as an option of its own. Its name is
+  // not in the stash (only the id is), and inventing one would be a guess; the
+  // label says what it is instead. The trailing slice is Discord's 25-option
+  // limit: the least recently active cached thread gives up the slot, because it
+  // is the one nobody in this interaction has chosen.
+  const carried = prefill?.prdThreadId ?? null;
+  if (carried !== null && carried !== PRD_NONE && !prdOptions.some((o) => o.value === carried)) {
+    prdOptions.splice(1, 0, { label: "Previously chosen PRD", value: carried });
+    prdOptions.length = Math.min(prdOptions.length, PRD_OPTION_CAP + 1);
+  }
 
   // The two notes are mutually exclusive: an empty cache is never truncated.
   const prdNote =

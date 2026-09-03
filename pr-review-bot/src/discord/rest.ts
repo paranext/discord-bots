@@ -16,6 +16,13 @@ export interface DiscordApplication {
   flags: number;
 }
 
+export interface DiscordUser {
+  id: string;
+  username: string;
+  /** Discord's display name. Nullable — fall back to `username`. */
+  global_name?: string | null;
+}
+
 /**
  * GATEWAY_MESSAGE_CONTENT and GATEWAY_MESSAGE_CONTENT_LIMITED — **application
  * flags**, NOT the gateway intents bitfield. Both values are confirmed against
@@ -107,12 +114,53 @@ export class DiscordRest {
     return this.call<DiscordMessage[]>("GET", `/channels/${channelId}/messages?${params.toString()}`);
   }
 
+  /**
+   * Reactors for one custom emoji on one message.
+   *
+   * `emoji` must be the literal `name:id` form — Discord requires the colon in
+   * the path. `encodeURIComponent` on its own does NOT leave `:` alone (it
+   * escapes it to `%3A`, which reads back as 10014 Unknown Emoji on every
+   * read) — only `encodeURI` does that. So the name and id are encoded
+   * separately and rejoined with a literal colon: today's id is numeric and
+   * needs no escaping, but a future emoji whose NAME needs escaping is still
+   * covered.
+   *
+   * `type` is Discord's reaction type: 0 NORMAL (the default), 1 BURST (super
+   * reactions). Only the release path reads type 1 — see `readReactors`.
+   */
+  getReactions(
+    channelId: string,
+    messageId: string,
+    emoji: string,
+    opts: { limit: number; type?: 0 | 1 },
+  ): Promise<RestResult<DiscordUser[]>> {
+    const params = new URLSearchParams({ limit: String(opts.limit) });
+    if (opts.type !== undefined) params.set("type", String(opts.type));
+    const colon = emoji.lastIndexOf(":");
+    const encodedEmoji =
+      colon === -1
+        ? encodeURIComponent(emoji)
+        : `${encodeURIComponent(emoji.slice(0, colon))}:${encodeURIComponent(emoji.slice(colon + 1))}`;
+    return this.call<DiscordUser[]>(
+      "GET",
+      `/channels/${channelId}/messages/${messageId}/reactions/${encodedEmoji}?${params.toString()}`,
+    );
+  }
+
   patchMessage(channelId: string, messageId: string, payload: DigestPayload): Promise<RestResult<DiscordMessage>> {
     return this.call<DiscordMessage>("PATCH", `/channels/${channelId}/messages/${messageId}`, payload);
   }
 
   postMessage(channelId: string, payload: DigestPayload | { content: string }): Promise<RestResult<DiscordMessage>> {
     return this.call<DiscordMessage>("POST", `/channels/${channelId}/messages`, payload);
+  }
+
+  /**
+   * Opens (or returns) the DM channel with one user. Idempotent — Discord
+   * returns the existing channel if there is one.
+   */
+  createDmChannel(userId: string): Promise<RestResult<{ id: string }>> {
+    return this.call<{ id: string }>("POST", "/users/@me/channels", { recipient_id: userId });
   }
 
   /**

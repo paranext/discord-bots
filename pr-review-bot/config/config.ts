@@ -52,6 +52,16 @@ export interface Config {
   immediateDigestRewrite: boolean;
 }
 
+/**
+ * Cloudflare's free-plan subrequest limit per invocation. A PLATFORM BOUND, not
+ * a tuning knob — it tracks what Cloudflare enforces, and hitting the real
+ * ceiling kills a tick mid-write, which is the failure the two-store-subrequest
+ * invariant exists to prevent. (`LEASE_TIMEOUT_MS` makes the same distinction
+ * but lives in `src/store/types.ts`, because both `Store` implementations
+ * import it; nothing outside the tick handler needs this one.)
+ */
+export const SUBREQUEST_CEILING = 50;
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

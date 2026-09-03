@@ -1,4 +1,4 @@
-import { isOpen, type PrRecord } from "./record.js";
+import { isOpen, type ClaimSource, type PrRecord } from "./record.js";
 
 export type ClaimOutcome =
   | { kind: "claimed"; record: PrRecord }
@@ -16,12 +16,15 @@ export function applyClaim(
   userId: string,
   displayName: string,
   at: number,
+  source: ClaimSource,
 ): ClaimOutcome {
   if (!isOpen(r)) return { kind: "not-open" };
 
   if (r.claimedBy !== null && r.claimedBy !== userId) {
     return { kind: "already-claimed", byName: r.claimedByName ?? "someone" };
   }
+  // Returns the record UNCHANGED, so an idempotent re-claim cannot repair a
+  // wrong `claimSource`. Nothing may depend on it doing so.
   if (r.claimedBy === userId) return { kind: "claimed", record: r };
 
   return {
@@ -31,6 +34,12 @@ export function applyClaim(
       claimedBy: userId,
       claimedByName: displayName,
       claimedAt: at,
+      claimSource: source,
+      // A menu claim removes the record from the reaction polling set, so the
+      // observation sequence breaks here and the next poll after it returns
+      // must prime. A reaction claim was itself produced by an observation, so
+      // the set the same sync just wrote stays valid.
+      lastReactors: source === "menu" ? null : r.lastReactors,
       // A new claim resets the auto-clear markers.
       lastClaimedByName: null,
       claimClearedAt: null,
@@ -45,7 +54,7 @@ export function applyUnclaim(r: PrRecord, userId: string): ClaimOutcome {
   }
   return {
     kind: "released",
-    record: { ...r, claimedBy: null, claimedByName: null, claimedAt: null },
+    record: { ...r, claimedBy: null, claimedByName: null, claimedAt: null, claimSource: null },
   };
 }
 
@@ -63,6 +72,7 @@ export function clearStaleClaim(r: PrRecord, now: number, thresholdMs: number): 
     claimedBy: null,
     claimedAt: null,
     claimedByName: null,
+    claimSource: null,
     lastClaimedByName: r.claimedByName,
     claimClearedAt: now,
   };

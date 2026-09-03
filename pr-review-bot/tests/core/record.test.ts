@@ -33,6 +33,9 @@ function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
     claimedAt: null,
     lastClaimedByName: null,
     claimClearedAt: null,
+    claimSource: null,
+    reactionCheckedAt: null,
+    lastReactors: null,
     syncPausedSince: null,
     resolvedAt: null,
     resolvedBy: null,
@@ -131,6 +134,16 @@ describe("markRequested", () => {
     const r = markRequested(claimed, T0 + HOUR, fields);
     expect(r.claimedBy).toBeNull();
     expect(r.claimedAt).toBeNull();
+  });
+
+  it("nulls lastReactors, since the new message it points at was never observed (Finding 2)", () => {
+    // /review-request on an already-tracked PR always posts a new message via
+    // `fields.messageId`. Leaving the old observation in place would strand a
+    // reactor who reacted to the FIRST message and re-reacts to the bump: they
+    // would already be in this stale set and read as "unchanged", so no
+    // release and no claim happen, silently and permanently.
+    const primed = commanded({ lastReactors: ["u1"] });
+    expect(markRequested(primed, T0 + HOUR, fields).lastReactors).toBeNull();
   });
 
   it("reopens a resolved record and preserves the prior resolution", () => {

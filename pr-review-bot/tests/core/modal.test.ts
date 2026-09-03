@@ -90,6 +90,40 @@ describe("buildRequestModal", () => {
     expect(prd?.default).toBe(true);
   });
 
+  it("carries a prefilled PRD back even when it has dropped out of the cache", () => {
+    // The retry path promises every field comes back exactly as typed. A thread
+    // that fell below the 24-option cap (or a cache that went cold) between the
+    // rejection and the button press used to match no option at all: nothing was
+    // defaulted, None was the only thing left to pick, and the PRD was silently
+    // lost on a form the user was told was prefilled.
+    const prd = field(buildRequestModal(config, cache(3), {
+      url: "https://github.com/paranext/paranext-core/pull/9",
+      team: "Simple",
+      urgency: "soon",
+      prdThreadId: "t-gone",
+      note: "",
+    }), FIELD_IDS.prd);
+    const options = prd.component["options"] as { value: string; default?: boolean }[];
+    expect(options.find((o) => o.value === "t-gone")?.default).toBe(true);
+  });
+
+  it("stays inside Discord's 25-option limit when a dropped PRD is carried back onto a full cache", () => {
+    const prd = field(buildRequestModal(config, cache(24, true), {
+      url: "https://github.com/paranext/paranext-core/pull/9",
+      team: "Simple",
+      urgency: "soon",
+      prdThreadId: "t-gone",
+      note: "",
+    }), FIELD_IDS.prd);
+    const options = prd.component["options"] as { value: string; default?: boolean }[];
+    expect(options).toHaveLength(25);
+    // The carried-back thread survives; the least recently active cached one is
+    // what gives up its slot, because it is the one nobody in this interaction
+    // has chosen.
+    expect(options.map((o) => o.value)).toContain("t-gone");
+    expect(options.map((o) => o.value)).not.toContain("t-23");
+  });
+
   it("marks None default when the prefill carries no PRD thread", () => {
     const modal = buildRequestModal(config, cache(3), {
       url: "https://github.com/paranext/paranext-core/pull/9",

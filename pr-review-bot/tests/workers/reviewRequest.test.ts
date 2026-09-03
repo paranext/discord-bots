@@ -221,6 +221,30 @@ describe("finishSubmit", () => {
     expect(JSON.stringify(edited[0]?.components)).toContain("request:retry:i-1");
   });
 
+  it("still shows the real rejection when the stash write fails", async () => {
+    // The stash is a convenience; the rejection is the answer. A throw out of
+    // the stash write used to escape `reject`, land in `finishSubmit`'s catch,
+    // and replace "that repo is not on the allowlist" with "the PR may already
+    // be tracked — check /review-list", which is false: nothing was recorded,
+    // and the user never learns what was actually wrong with their submission.
+    const failing: Store = {
+      beginTick: (now) => store.beginTick(now),
+      finishTick: (input) => store.finishTick(input),
+      apply: async (commands, opts) => {
+        if (commands.some((c) => c.kind === "stashSubmission")) throw new Error("DO write failed");
+        return store.apply(commands, opts);
+      },
+      readState: () => store.readState(),
+    };
+
+    await finishSubmit(submission({ url: "https://github.com/someone/else/pull/1" }), deps(failing));
+
+    expect(edited[0]?.content).toContain("not on the repo allowlist");
+    expect(edited[0]?.content).not.toContain("may already be tracked");
+    // No stash was written, so there is nothing for a retry button to reopen.
+    expect(JSON.stringify(edited[0]?.components)).not.toContain("request:retry:");
+  });
+
   it("offers no retry button when there is no actor to stash the values against", async () => {
     // Reachable, not theoretical: offline validation is rejected BEFORE the
     // missing-actor throw, so a submission carrying neither `member` nor `user`

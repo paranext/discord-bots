@@ -88,6 +88,15 @@ describe("DiscordRest", () => {
     const result = await new DiscordRest("tok").patchMessage("chan", "m", { embeds: [], components: [] });
     expect(result.ok).toBe(true);
   });
+
+  it("opens a DM channel by posting the recipient id to /users/@me/channels", async () => {
+    const calls = stubFetch([{ status: 200, json: { id: "dm-1" } }]);
+    const result = await new DiscordRest("tok").createDmChannel("u1");
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe("https://discord.com/api/v10/users/@me/channels");
+    expect(calls[0]!.body).toEqual({ recipient_id: "u1" });
+    expect(result).toEqual({ ok: true, value: { id: "dm-1" } });
+  });
 });
 
 describe("editInteractionResponse", () => {

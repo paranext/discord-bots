@@ -239,3 +239,79 @@ At sprint end: ask two teammates cold what the oldest thing waiting for
 review is. If neither can answer, the delivery problem this bot exists to
 solve is still real, and the daily post (`src/core/render/daily.ts`) must be
 confirmed working before `/review-request` is enabled.
+
+### Reaction claims (refresh-loop step 8)
+
+- `[REACTIONS] eligible=N read=M allowance=A` on every tick. `read=0` every tick
+  with `eligible` above zero means the path has stopped working; `eligible`
+  climbing means the polling cycle is getting longer.
+- `[REACTION_EMOJI_INVALID]` means Discord rejected `config.claimEmoji` — it has
+  been deleted or re-uploaded with a new id. The reaction path is disabled until
+  the snowflake in `config/config.ts` is updated. Nothing else is affected and
+  no state is damaged.
+- **Shadow mode never rotates the poll set.** `reactionCheckedAt` — the
+  oldest-unchecked-first sort key step 8 polls by — is only written through
+  `finishTick`, which read-only mode never calls. Under `READ_ONLY`, step 8
+  polls the same first `allowance` records every tick, forever. A shadow-mode
+  log showing reaction reads succeeding is not proof the whole selection cycle
+  (rotating through every eligible record) works — only a live run exercises
+  that.
+- **`[REACTIONS] full page on <messageId>` means that record's reactions have
+  stopped being readable.** `readReactors` asks for 25 (`REACTION_READ_LIMIT`),
+  and a page that comes back full may have been cut short. Discord orders
+  reactors by user id rather than by reaction time, so the claim holder can
+  simply sort past the end of it — and treating a partial page as an
+  observation would read everyone beyond it as having un-reacted and hand an
+  active review to whoever landed inside the first 25. It is therefore
+  discarded as a failed read: the record's `reactionCheckedAt` advances so it
+  rotates to the back of the queue, `lastReactors` is left untouched, and no
+  claim changes hands. The record cannot be claimed or released by reaction
+  until the message drops below 25 reactors; the digest menu still works on it.
+  Repeated on the same message, this is someone using the request message as a
+  reaction thread, not a bug in the bot.
+- **Release latency.** Removing a reaction releases the claim on the record's
+  next poll, not immediately: `ceil(eligible / allowance)` ticks, which is 25
+  minutes at 10 reads per tick across 45 eligible records and an hour at 120.
+  The eligible set is not bounded — resolved records are purged at 30 days but
+  open ones never are — so it grows with the number of long-lived open PRs.
+  Anyone who needs a row freed immediately should use the digest's claim menu,
+  which is instant.
+- **Reactions that predate the deploy do not claim.** Schema v4 migrates every
+  record to `lastReactors: null`, so the first poll records who is standing on
+  each message and claims for nobody. Anyone who wants a row they already
+  reacted to must remove and re-add the reaction, or use the menu.
+- **A reaction that loses to a menu claim gets no DM.** The private notice
+  (`notifySuperseded`) only ever fires out of a `reaction-sync` result, and a
+  menu-claimed record never produces one: `applyClaim(..., "menu")` nulls
+  `lastReactors`, and `selectReactionTargets` excludes it from the polling set
+  the moment the claim source stops being `"reaction"`. A reactor who loses to
+  a menu claim is simply never told — the reaction is absorbed silently the
+  next time the record re-enters the polling set. If someone reports their
+  reaction "didn't work" and no DM ever arrived, check who holds the claim on
+  the digest; if it's a menu claim, that's this case, not a bug. They must
+  remove and re-add the reaction (or use the menu) to act on the row.
+- **`budgets.reactionReadsPerTick` is a subrequest budget, not a record count
+  — redo this arithmetic before raising it.** A burst confirmation read (the
+  `type=1` check on the release path, in `readReactors`) makes one polled
+  record cost two subrequests rather than one, and step 8 charges that second
+  request against the same allowance: it decrements a *remaining budget* by
+  each read's actual cost, and refuses to start a read that might cost two on
+  the last single unit. A full allowance therefore spends at most
+  `reactionReadsPerTick`, whatever the mix of one- and two-request reads —
+  fewer records get polled when confirmations are common, which is the
+  intended trade. At the current default of 10, with a worst realistic
+  pre-step-8 spend of about 11, that is
+  `11 + 10 + 1 (finishTick) + 4 (superseded DMs) = 26` against the ceiling of
+  50 (`SUBREQUEST_CEILING` in `config/config.ts`). The margin is real but not
+  unlimited, and `RESERVE = 5` is what holds the last two terms back: redo
+  this sum with the tick's actual pre-step-8 count — not the 11 above — before
+  raising the budget.
+- **The superseded-DM budget is four subrequests, spent or not
+  (`DM_SUBREQUEST_CAP`).** Two subrequests buy one delivered DM, so a healthy
+  tick sends two; a tick where recipients have "DMs from server members"
+  disabled spends its four on failed channel-opens and sends none, logging
+  `superseded notice … not sent — per-tick DM budget spent` for the rest. That
+  log line means the budget ran out, not that anything broke. The cap is on
+  requests issued rather than DMs delivered on purpose: Discord's Create-DM
+  abuse ceiling counts attempts, and a blocked recipient is a stable property
+  of *their* settings that no number of retries will change.

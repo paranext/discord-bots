@@ -10,6 +10,7 @@ import {
   resolveRecord,
   type PrRecord,
 } from "../core/record.js";
+import { syncReactions } from "../core/reactions.js";
 import { prSlug } from "../core/urls.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type CommandResult, type Meta, type StoreState } from "./types.js";
 
@@ -106,8 +107,20 @@ function applyOne(
     case "setRequestMessageId": {
       const existing = state.records[command.id];
       if (existing === undefined) return { state, result: { kind: "not-found" } };
+      // A changed id points the record at a message that was never observed
+      // (a new post) or at none at all (message-gone) — either way the stored
+      // observation describes a message this record no longer points at, so
+      // it must not survive. A no-op write (the id is unchanged) leaves it be.
+      const changed = existing.messageId !== command.messageId;
       return {
-        state: { ...state, records: put(state.records, { ...existing, messageId: command.messageId }) },
+        state: {
+          ...state,
+          records: put(state.records, {
+            ...existing,
+            messageId: command.messageId,
+            lastReactors: changed ? null : existing.lastReactors,
+          }),
+        },
         result: { kind: "ok" },
       };
     }
@@ -150,11 +163,27 @@ function applyOne(
       };
     }
 
+    case "reactionSync": {
+      const existing = state.records[command.id];
+      if (existing === undefined) return { state, result: { kind: "not-found" } };
+      const outcome = syncReactions(existing, command.reactors, command.now);
+      return {
+        state: { ...state, records: put(state.records, outcome.record) },
+        result: {
+          kind: "reaction-sync",
+          id: command.id,
+          claimed: outcome.claimed,
+          released: outcome.released,
+          superseded: outcome.superseded,
+        },
+      };
+    }
+
     case "claim": {
       const existing = state.records[command.id];
       if (existing === undefined) return { state, result: { kind: "not-found" } };
       if (stale(existing, command.expectLastRequestedAt)) return { state, result: { kind: "stale" } };
-      const outcome = applyClaim(existing, command.userId, command.displayName, command.at);
+      const outcome = applyClaim(existing, command.userId, command.displayName, command.at, "menu");
       if (outcome.kind === "claimed") {
         return { state: { ...state, records: put(state.records, outcome.record) }, result: { kind: "ok" } };
       }

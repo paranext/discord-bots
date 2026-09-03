@@ -693,7 +693,7 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v2 as never);
 
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(migrated.meta.prdCache).toBeNull();
     expect(migrated.meta.retryStash).toEqual({});
     // Everything version 2 already carried survives untouched.
@@ -701,10 +701,57 @@ describe("RecordsObject", () => {
     expect(migrated.meta.scanCursors).toEqual({ c1: "9" });
   });
 
-  it("still walks unversioned state all the way to 3", () => {
+  it("migrates version 3 records to 4, priming the reaction state", () => {
+    const claimed = {
+      ...newScannedRecord({
+        pr: { owner: "paranext", repo: "paranext-core", number: 1 },
+        channelId: "c",
+        messageId: "m",
+        messageTimestamp: 1_756_000_000_000,
+        title: "PT-1",
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      }),
+      claimedBy: "u1",
+      claimedByName: "Katherine",
+      claimedAt: 1_756_000_000_000,
+    };
+    const v3 = {
+      schemaVersion: 3,
+      records: { "paranext/paranext-core#1": claimed },
+      meta: { ...emptyState().meta },
+    };
+
+    const migrated = migrateState(v3 as never);
+
+    expect(migrated.schemaVersion).toBe(4);
+    const record = migrated.records["paranext/paranext-core#1"]!;
+    // Every claim that existed before this deploy was necessarily made from the menu.
+    expect(record.claimSource).toBe("menu");
+    expect(record.reactionCheckedAt).toBeNull();
+    // null, NOT []: the first poll after deploy primes and claims for nobody.
+    expect(record.lastReactors).toBeNull();
+  });
+
+  it("leaves claimSource null on an unclaimed record when migrating to 4", () => {
+    const open = newScannedRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 2 },
+      channelId: "c",
+      messageId: "m",
+      messageTimestamp: 1_756_000_000_000,
+      title: "PT-2",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    const v3 = { schemaVersion: 3, records: { "paranext/paranext-core#2": open }, meta: { ...emptyState().meta } };
+
+    expect(migrateState(v3 as never).records["paranext/paranext-core#2"]!.claimSource).toBeNull();
+  });
+
+  it("still walks unversioned state all the way to 4", () => {
     const v0 = { records: {}, meta: { ...emptyState().meta, digestBodyVersion: undefined } };
     const migrated = migrateState(v0 as never);
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.meta.digestBodyVersion).toBe(0);
     expect(migrated.meta.retryStash).toEqual({});
   });

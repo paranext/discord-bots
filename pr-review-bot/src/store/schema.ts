@@ -1,3 +1,4 @@
+import type { PrRecord } from "../core/record.js";
 import { CURRENT_SCHEMA_VERSION, type Meta, type StoreState } from "./types.js";
 
 /**
@@ -17,15 +18,26 @@ type StoredMeta = Omit<Meta, "digestBodyVersion" | "prdCache" | "retryStash"> & 
 };
 
 /**
+ * A `PrRecord` as some earlier deploy could have written it. Version 4 added
+ * three fields, so version-3 records lack them.
+ */
+type StoredRecord = Omit<PrRecord, "claimSource" | "reactionCheckedAt" | "lastReactors"> & {
+  claimSource?: PrRecord["claimSource"];
+  reactionCheckedAt?: number | null;
+  lastReactors?: string[] | null;
+};
+
+/**
  * The persisted object as some earlier deploy could have written it. Version 1 is
  * the pre-deploy baseline, so the only pre-1 shape that exists is an unversioned
  * one — `schemaVersion` absent. Every future shape change widens this type (or
  * `StoredMeta`) by exactly the fields it changes, and adds one step to
  * `migrateState`.
  */
-export type StoredState = Omit<StoreState, "schemaVersion" | "meta"> & {
+export type StoredState = Omit<StoreState, "schemaVersion" | "meta" | "records"> & {
   schemaVersion?: number;
   meta: StoredMeta;
+  records: Record<string, StoredRecord>;
 };
 
 /**
@@ -36,9 +48,10 @@ export type StoredState = Omit<StoreState, "schemaVersion" | "meta"> & {
  * chain therefore ends in one narrowing cast at the `return`, which is sound
  * because the last step by construction produces `CURRENT_SCHEMA_VERSION`.
  */
-type MigratingState = Omit<StoreState, "schemaVersion" | "meta"> & {
+type MigratingState = Omit<StoreState, "schemaVersion" | "meta" | "records"> & {
   schemaVersion: number;
   meta: StoredMeta;
+  records: Record<string, StoredRecord>;
 };
 
 /**
@@ -126,6 +139,28 @@ export function migrateState(stored: StoredState): StoreState {
       schemaVersion: 3,
       meta: { ...state.meta, prdCache: state.meta.prdCache ?? null, retryStash: state.meta.retryStash ?? {} },
     };
+  }
+
+  // 3 → 4: every record gained `claimSource`, `reactionCheckedAt` and
+  // `lastReactors`. `lastReactors: null` is the deploy behaviour and is chosen,
+  // not incidental: null means unprimed, so the first poll of each record
+  // records who is standing on its message and claims for nobody. Seeding `[]`
+  // instead would read every reaction that already exists in the channel as
+  // newly present and claim retroactively — parking rows in Being reviewed
+  // under names that are wrong for a fresh 48 hours, and fanning DMs out to
+  // many users in a few minutes, which is the pattern Discord's Create DM docs
+  // warn can get a bot blocked from opening DMs.
+  if (state.schemaVersion === 3) {
+    const records: Record<string, StoredRecord> = {};
+    for (const [id, record] of Object.entries(state.records)) {
+      records[id] = {
+        ...record,
+        claimSource: record.claimedBy !== null ? "menu" : null,
+        reactionCheckedAt: null,
+        lastReactors: null,
+      };
+    }
+    state = { ...state, schemaVersion: 4, records };
   }
 
   // Sound because the last step above produces CURRENT_SCHEMA_VERSION, and
