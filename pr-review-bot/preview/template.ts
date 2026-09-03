@@ -9,9 +9,146 @@ export interface RenderedScenario {
   droppedCount: number;
 }
 
+/** One state the `/review-request` modal is rendered in — a full cache, a
+ *  truncated one, a cold one, or a prefilled retry. `response` is whatever
+ *  `buildRequestModal` returned, kept as `unknown` so this module stays
+ *  decoupled from the interaction-response type. */
+export interface ModalSpecimen {
+  key: string;
+  label: string;
+  description: string;
+  response: unknown;
+}
+
+/** One `SubmitRejection` variant, already rendered by `renderRejection`. */
+export interface RejectionSpecimen {
+  key: string;
+  label: string;
+  content: string;
+  components: unknown[];
+}
+
+interface RawLabelField {
+  type: number;
+  label: string;
+  description?: string;
+  component: {
+    type: number;
+    required?: boolean;
+    placeholder?: string;
+    value?: string;
+    options?: { label: string; value: string; description?: string; default?: boolean }[];
+  };
+}
+
+/** A plain-text sketch of the modal's five fields — the point is to read the
+ *  labels and descriptions as a person would, which is what caught the v1
+ *  spec's timestamp defect. Pretty-printed JSON alone hides that; this is the
+ *  companion view that doesn't. */
+function fieldSketch(components: unknown[]): string {
+  return (components as RawLabelField[])
+    .map((field) => {
+      const comp = field.component;
+      let detail: string;
+      if (comp.type === 3) {
+        const opts = (comp.options ?? [])
+          .map((o) => `${o.label}${o.default === true ? " (selected)" : ""}`)
+          .join(", ");
+        detail = `select, ${comp.options?.length ?? 0} option(s): ${opts}`;
+      } else if (comp.type === 4) {
+        const bits = [comp.required === true ? "required" : "optional"];
+        if (comp.placeholder !== undefined) bits.push(`placeholder: "${comp.placeholder}"`);
+        if (comp.value !== undefined) bits.push(`value: "${comp.value}"`);
+        detail = `text, ${bits.join(", ")}`;
+      } else {
+        detail = `unknown component type ${comp.type}`;
+      }
+      const header = field.description === undefined ? field.label : `${field.label} — ${field.description}`;
+      return `${header}\n    ${detail}`;
+    })
+    .join("\n");
+}
+
+function buildModalSection(modals: ModalSpecimen[]): string {
+  const cards = modals
+    .map((m) => {
+      const data = (m.response as { data: { title: string; components: unknown[] } }).data;
+      return `
+<section class="specimen">
+  <header>
+    <h2>${m.label}</h2>
+    <p class="tests">${m.description}</p>
+    <p class="counts">title: "${data.title}" (${data.title.length}/45 chars)</p>
+  </header>
+  <div class="stage">
+    <div class="sketch-pair">
+      <div class="sketch">
+        <h3>as a person would read it</h3>
+        <pre class="fieldsketch">${escapeHtml(fieldSketch(data.components))}</pre>
+      </div>
+      <div class="sketch">
+        <h3>raw payload</h3>
+        <pre class="json">${escapeHtml(JSON.stringify(m.response, null, 2))}</pre>
+      </div>
+    </div>
+  </div>
+</section>`;
+    })
+    .join("\n");
+  return `<h1>The \`/review-request\` modal</h1>
+<p class="lede">Rendered by <code>src/handlers/modal.ts</code>. Four cache states: a
+full cache, a truncated one, a cold one, and a prefilled retry.</p>
+${cards}`;
+}
+
+/** Rejections carry an action row of buttons, not selects — `renderComponents`
+ *  above assumes the digest's select rows and would mislabel a button as an
+ *  empty "Select". */
+function renderRejectionComponents(components: unknown[]): string {
+  if (components.length === 0) {
+    return '<p class="none">no retry button — nothing was stashed for this rejection</p>';
+  }
+  const buttons = components.flatMap((row) => {
+    const inner = (row as { components?: { label?: string }[] }).components ?? [];
+    return inner.map((c) => `<div class="select"><span>🔘 ${c.label ?? "Button"}</span></div>`);
+  });
+  return `<div class="components">${buttons.join("")}</div>`;
+}
+
+function buildRejectionSection(rejections: RejectionSpecimen[], now: number): string {
+  const cards = rejections
+    .map(
+      (r) => `
+<section class="specimen">
+  <header>
+    <h2>${r.label}</h2>
+    <p class="counts">${r.content.length}/2000 chars</p>
+  </header>
+  <div class="stage">
+    <div class="dc">
+      <div class="embed" style="border-left-color:#5865f2">
+        <div class="body">${discordMarkdown(r.content, now).replace(/\n/g, "<br>")}</div>
+      </div>
+      ${renderRejectionComponents(r.components)}
+    </div>
+  </div>
+</section>`,
+    )
+    .join("\n");
+  return `<h1>Submission rejections</h1>
+<p class="lede">Rendered by <code>src/core/render/rejection.ts</code>. Every
+\`SubmitRejection\` variant, ephemeral, with the retry button and field echo a
+requester actually sees.</p>
+${cards}`;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /** Minimal Discord-dark markdown renderer: enough for links, bold, underline and
  *  italics, plus resolved relative timestamps so the page reads like the client. */
-function discordMarkdown(text: string, now: number): string {
+export function discordMarkdown(text: string, now: number): string {
   const escaped = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -62,7 +199,12 @@ function renderComponents(components: unknown[]): string {
   return `<div class="components">${selects.join("")}</div>`;
 }
 
-export function buildHtml(scenarios: RenderedScenario[], now: number): string {
+export function buildHtml(
+  scenarios: RenderedScenario[],
+  now: number,
+  modals: ModalSpecimen[] = [],
+  rejections: RejectionSpecimen[] = [],
+): string {
   const cards = scenarios
     .map(
       (s) => `
@@ -121,6 +263,14 @@ export function buildHtml(scenarios: RenderedScenario[], now: number): string {
   .count { color:#5d5d6b; font-size:0.78rem; }
   .none { color:#7a7a88; font-style:italic; margin:0; font-size:0.9rem; }
   strong { color:#f2f3f5; }
+  h1 + .lede + section, main h1:not(:first-child) { margin-top:56px; }
+  .sketch-pair { display:flex; gap:16px; flex-wrap:wrap; }
+  .sketch { flex:1 1 320px; min-width:280px; }
+  .sketch h3 { margin:0 0 8px; font-size:0.8rem; color:#8d8d9b; font-weight:600;
+               text-transform:uppercase; letter-spacing:.04em; }
+  pre.fieldsketch, pre.json { background:#1e1f22; border-radius:5px; padding:12px 14px;
+    margin:0; font-family:ui-monospace,Menlo,monospace; font-size:0.8rem; color:#dbdee1;
+    white-space:pre-wrap; word-break:break-word; max-height:420px; overflow-y:auto; }
 </style></head>
 <body><main>
 <h1>Needs Review — render proof</h1>
@@ -128,5 +278,7 @@ export function buildHtml(scenarios: RenderedScenario[], now: number): string {
 <code>fixtures/records.ts</code>. No credentials, no network. Timestamps are resolved
 the way Discord would resolve them, from a fixed fixture clock.</p>
 ${cards}
+${modals.length === 0 ? "" : buildModalSection(modals)}
+${rejections.length === 0 ? "" : buildRejectionSection(rejections, now)}
 </main></body></html>`;
 }

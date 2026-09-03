@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { newScannedRecord, recordId } from "../../src/core/record.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type DigestPayload, type DigestPublisher, type FinishTickInput, type Store, type StoreState } from "../../src/store/types.js";
+import { migrateState } from "../../src/store/schema.js";
+import { emptyState } from "../../src/store/apply.js";
 
 const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const ID = "paranext/paranext-core/177";
@@ -670,6 +672,41 @@ describe("RecordsObject", () => {
       doState.storage.get<StoreState>("state"),
     );
     expect(persisted?.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it("migrates version 2 state forward with defaults for the new meta fields", () => {
+    const v2 = {
+      schemaVersion: 2,
+      records: {},
+      meta: {
+        lastSync: 1_756_000_000_000,
+        digestMessageId: "m-1",
+        digestBodyHash: "h",
+        digestBodyVersion: 4,
+        unpinnedReportedAt: null,
+        lastDailyPostDate: "2026-08-31",
+        scanCursors: { c1: "9" },
+        scanBackfill: {},
+        syncLease: null,
+      },
+    };
+
+    const migrated = migrateState(v2 as never);
+
+    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.meta.prdCache).toBeNull();
+    expect(migrated.meta.retryStash).toEqual({});
+    // Everything version 2 already carried survives untouched.
+    expect(migrated.meta.digestBodyVersion).toBe(4);
+    expect(migrated.meta.scanCursors).toEqual({ c1: "9" });
+  });
+
+  it("still walks unversioned state all the way to 3", () => {
+    const v0 = { records: {}, meta: { ...emptyState().meta, digestBodyVersion: undefined } };
+    const migrated = migrateState(v0 as never);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.meta.digestBodyVersion).toBe(0);
+    expect(migrated.meta.retryStash).toEqual({});
   });
 
   it("refuses state from a NEWER schema version rather than silently rewriting it", async () => {

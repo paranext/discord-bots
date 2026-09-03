@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config as baseConfig } from "../../config/config.js";
 import { newScannedRecord, recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { DiscordRest } from "../../src/discord/rest.js";
+import { CredentialProvider } from "../../src/github/credentials.js";
 import { handleInteraction } from "../../src/handlers/interactions.js";
 import { emptyState } from "../../src/store/apply.js";
 import { MemoryStore } from "../../src/store/memory.js";
@@ -66,8 +68,64 @@ function componentRequest(customId: string, value: string, userId = "u1", userNa
   });
 }
 
+// A genuine BUTTON payload, unlike componentRequest: no `values` key at all
+// (a select menu's field; a button never carries one) and component_type 2.
+// The routing-order regression test needs this shape specifically — the bug
+// it guards was the shared decode running before custom_id was checked, and
+// that only manifests when `values` is absent, not merely empty.
+function buttonRequest(customId: string, userId = "u1", userName = "Katherine") {
+  const body = JSON.stringify({
+    type: 3,
+    data: { custom_id: customId, component_type: 2 },
+    member: { user: { id: userId, global_name: userName, username: userName } },
+    channel_id: CHANNEL,
+  });
+  return new Request("https://bot/interactions", {
+    method: "POST",
+    body,
+    headers: { "x-signature-ed25519": "ab".repeat(64), "x-signature-timestamp": "1756000000" },
+  });
+}
+
+/** An arbitrary interaction payload, for the shapes the two helpers above do not
+ *  cover: application commands and modal submissions. */
+function rawRequest(payload: unknown) {
+  return new Request("https://bot/interactions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "x-signature-ed25519": "ab".repeat(64), "x-signature-timestamp": "1756000000" },
+  });
+}
+
 function deps(store: MemoryStore, verified = true) {
-  return { store, config, publicKey: "00".repeat(32), now: () => T0, verify: async () => verified };
+  return {
+    store,
+    config,
+    publicKey: "00".repeat(32),
+    now: () => T0,
+    verify: async () => verified,
+    waitUntil: () => {},
+    // The three request-path deps, so `requestDeps` narrows and the retry
+    // button reaches the real `handleRetryButton` rather than being turned away
+    // with "not enabled yet". Neither object is exercised on this file's paths:
+    // the retry handler does one store read and no I/O.
+    rest: new DiscordRest("bot-token"),
+    credentials: new CredentialProvider({
+      appId: "1",
+      appInstallationId: "2",
+      appPrivateKeyPem: "unused",
+      publicToken: "ghp_public",
+    }),
+    appId: "app-1",
+  };
+}
+
+/** `deps()` minus the three request-path deps — which is exactly what production
+ *  runs until Task 12 wires them into `src/index.ts`, so it is the `requestDeps`
+ *  branch most worth pinning. */
+function narrowDeps(store: MemoryStore) {
+  const { rest: _rest, credentials: _credentials, appId: _appId, ...narrow } = deps(store);
+  return narrow;
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -201,5 +259,152 @@ describe("handleInteraction — resolve and reopen", () => {
     const { store } = makeStore([record()]);
     const response = await handleInteraction(componentRequest("digest:unknown", `${ID}:${T0}`), deps(store));
     expect(response.status).toBe(200);
+  });
+});
+
+describe("handleInteraction — component routing order", () => {
+  it("routes a component by custom_id before it tries to decode a selection value", async () => {
+    // A button carries no `values` key at all (buttonRequest omits it — unlike
+    // componentRequest's empty-string element, which does not reproduce the
+    // bug). Before this fix, the shared decode ran first on the missing
+    // `values` and swallowed every button with "Could not read that
+    // selection". The positive assertion is on `handleRetryButton`'s own
+    // expiry wording — reachable only by actually arriving there, since the
+    // stash is empty — which also rules out control silently falling through to
+    // the unrelated "no longer in use" branch, or being turned away by the
+    // `requestDeps` gate; neither of those contains "expired" either, and
+    // neither would mean routing worked.
+    const { store } = makeStore([]);
+    const response = await handleInteraction(buttonRequest("request:retry:missing"), deps(store));
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("expired");
+  });
+
+  it("still reports an undecodable value for a SELECT menu", async () => {
+    const { store } = makeStore([record()]);
+    const response = await handleInteraction(componentRequest("digest:claim", "garbage"), deps(store));
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("Could not read that selection");
+  });
+});
+
+describe("handleInteraction — /review-request routing", () => {
+  /** A modal submission carrying whatever `custom_id` is under test. The URL is
+   *  deliberately off the allowlist so the scheduled work is turned down by
+   *  OFFLINE validation and touches GitHub not at all — this file is about
+   *  routing, and `reviewRequest.test.ts` owns the submit path. */
+  function modalRequest(customId: string) {
+    return rawRequest({
+      type: 5,
+      id: "i-1",
+      token: "tok",
+      channel_id: CHANNEL,
+      member: { user: { id: "u1", global_name: "Katherine", username: "Katherine" } },
+      data: {
+        custom_id: customId,
+        components: [
+          { type: 18, component: { type: 4, custom_id: "url", value: "https://github.com/someone/else/pull/1" } },
+          { type: 18, component: { type: 4, custom_id: "team", value: "Power" } },
+          { type: 18, component: { type: 4, custom_id: "urgency", value: "soon" } },
+        ],
+      },
+    });
+  }
+
+  function commandRequest(name: string) {
+    return rawRequest({
+      type: 2,
+      id: "c-1",
+      token: "tok",
+      channel_id: CHANNEL,
+      member: { user: { id: "u1", global_name: "Katherine", username: "Katherine" } },
+      data: { name },
+    });
+  }
+
+  it("answers the /review-request command with a modal", async () => {
+    const { store } = makeStore([]);
+    const response = await handleInteraction(commandRequest("review-request"), deps(store));
+    const body = (await response.json()) as { type: number; data: { custom_id: string } };
+    expect(body.type).toBe(9);
+    expect(body.data.custom_id).toBe("request:modal");
+  });
+
+  it("answers the modal submission with a deferral and schedules the work", async () => {
+    const { store } = makeStore([]);
+    const scheduled: Promise<unknown>[] = [];
+    // 204 on everything: the only network an offline-rejected submit reaches is
+    // the deferred-reply edit. Captured and awaited rather than dropped, so the
+    // background work cannot outlive `afterEach`'s unstub.
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 204 }));
+
+    const response = await handleInteraction(modalRequest("request:modal"), {
+      ...deps(store),
+      waitUntil: (work: Promise<unknown>) => { scheduled.push(work); },
+    });
+
+    const body = (await response.json()) as { type: number; data: { flags: number } };
+    expect(body.type).toBe(5);
+    expect(body.data.flags).toBe(1 << 6);
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0];
+  });
+
+  it("turns away a modal that is not the request modal without scheduling anything", async () => {
+    // A foreign modal reaching `finishSubmit` would have its values STASHED,
+    // consuming a slot under `budgets.retryStashEntries` and evicting a real
+    // user's pending retry. So this asserts on the stash, not merely the wording.
+    const { store } = makeStore([]);
+    const scheduled: Promise<unknown>[] = [];
+
+    const response = await handleInteraction(modalRequest("someone:elses:modal"), {
+      ...deps(store),
+      waitUntil: (work: Promise<unknown>) => { scheduled.push(work); },
+    });
+
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("no longer in use");
+    expect(scheduled).toHaveLength(0);
+    expect((await store.readState()).meta.retryStash).toEqual({});
+  });
+
+  it("says the command is not enabled when rest, credentials and appId are absent", async () => {
+    // The branch production actually takes until Task 12 wires the three deps
+    // into `src/index.ts`. All three entry points share the one gate.
+    const { store } = makeStore([]);
+    for (const request of [
+      commandRequest("review-request"),
+      modalRequest("request:modal"),
+      buttonRequest("request:retry:i-1"),
+    ]) {
+      const response = await handleInteraction(request, narrowDeps(store));
+      const body = (await response.json()) as { data: { content: string } };
+      expect(body.data.content).toContain("That command is not enabled yet.");
+    }
+  });
+
+  it("rejects the command, the modal submit, and the retry button from a channel not on the allowlist", async () => {
+    const { store } = makeStore([]);
+    const OTHER = "some-other-channel";
+    for (const request of [
+      commandRequest("review-request"),
+      modalRequest("request:modal"),
+      buttonRequest("request:retry:i-1"),
+    ]) {
+      const raw = JSON.parse((await request.clone().text())) as { channel_id: string };
+      raw.channel_id = OTHER;
+      const response = await handleInteraction(rawRequest(raw), deps(store));
+      const body = (await response.json()) as { data: { content: string } };
+      expect(body.data.content).toContain(`<#${CHANNEL}>`);
+      expect(body.data.content.toLowerCase()).not.toContain("not enabled");
+    }
+    expect((await store.readState()).meta.retryStash).toEqual({});
+  });
+
+  it("still answers an unknown application command with the not-enabled message", async () => {
+    const { store } = makeStore([]);
+    const response = await handleInteraction(commandRequest("review-nonsense"), deps(store));
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("That command is not enabled yet.");
   });
 });

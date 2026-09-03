@@ -8,6 +8,34 @@ Deployment target throughout is Cloudflare Workers (`wrangler deploy`). The
 refresh tick runs on a cron trigger every 5 minutes (`wrangler.jsonc`'s
 `triggers.crons`).
 
+## Rollout stage 1: record the PRD thread fixtures
+
+Before the first real deploy, on a scratch Discord server with a bot token
+and a forum channel standing in for the PRD forum, run:
+
+```bash
+curl -s -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+  "https://discord.com/api/v10/guilds/$DISCORD_GUILD_ID/threads/active" \
+  > fixtures/responses/threads-active.json
+
+curl -s -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+  "https://discord.com/api/v10/channels/$PRD_FORUM_ID/threads/archived/public?limit=25" \
+  > fixtures/responses/threads-archived-public.json
+```
+
+The second route must be run against a real **forum** channel — Discord's
+own docs only describe `.../threads/archived/public` under text-channel
+parents, so a text channel's response would not prove anything about forum
+behavior, which is what `src/handlers/scheduled.ts`'s PRD cache refresh
+actually depends on. Scrub each recorded file down to `id`, `name`,
+`parent_id`, `last_message_id` per thread — no other fields — before
+committing, and keep at least one active thread whose `parent_id` is not the
+PRD forum's, since one of the guarded tests asserts that's still true of a
+real response. These two fixtures cannot be hand-written; `tests/core/fixtures.test.ts`
+explains why in a comment beside the same two commands, and its `describe`
+block for them stays `skipIf`-skipped until the files exist. Once committed,
+that guarded test activates on its own — no code change needed.
+
 ## 1. Create the Discord application
 
 In the [Discord Developer Portal](https://discord.com/developers/applications),
@@ -111,6 +139,11 @@ channel and the PRD forum (`teamwide-epic-discussions`). Grant only:
 - Read Message History
 - View Channel
 
+The bot also needs read access to the PRD forum channel
+(`prdForumChannelId`, step 9) — `View Channel` and `Read Message History`
+there — so refresh-loop step 7 can list its active and archived threads for
+the `/review-request` modal's PRD dropdown (see `docs/architecture.md`).
+
 **Do not grant** Manage Messages, and **do not grant** `PIN_MESSAGES`. The
 digest is pinned once by hand (step 13) and thereafter only edited; a bot
 editing its own message needs no pinning permission at all. Granting either
@@ -205,7 +238,7 @@ Never put these in the repo — Worker secrets only:
 ```bash
 wrangler secret put DISCORD_BOT_TOKEN
 wrangler secret put DISCORD_PUBLIC_KEY
-wrangler secret put DISCORD_APP_ID
+wrangler secret put DISCORD_APP_ID   # also read as a Worker binding at request time — the modal's callback needs it
 wrangler secret put DISCORD_GUILD_ID
 wrangler secret put DISCORD_BOT_USER_ID
 wrangler secret put GITHUB_APP_ID
@@ -306,9 +339,19 @@ the same shape as `npm run preview`. (It used to be documented as
 `npx tsx …`; `tsx` is not a dependency of this repo, so that line asked npm
 to fetch a package nothing here declares.)
 
-This registers only `/review-list`. `/review-request` is registered with
-`npm run register-commands -- --all` only when moving past shadow mode — it is not built yet (see
-`docs/architecture.md`, "What's deliberately not here").
+This registers only `/review-list`. `/review-request` is built, tested, and
+ready to register, but enabling it is a separate operational decision, not a
+code change — see the next step.
+
+Once shadow mode has met its threshold (`docs/operations.md`'s
+shadow-mode measurement log), register the command:
+
+```bash
+npm run register-commands -- --all
+```
+
+Until then, plain `npm run register-commands` continues to register only
+`/review-list`.
 
 ## 16. Confirm health
 

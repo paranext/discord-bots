@@ -1,4 +1,5 @@
 import type { Config } from "../../config/config.js";
+import type { RawThread } from "../core/prd.js";
 import type { DigestPayload, DigestPublisher } from "../store/types.js";
 
 const API = "https://discord.com/api/v10";
@@ -60,6 +61,37 @@ export class DiscordRest {
   }
 
   /**
+   * Edits the deferred reply to an interaction.
+   *
+   * Deliberately does NOT go through `call()`: that method sends
+   * `Authorization: Bot …` on everything, and this route is authenticated by the
+   * interaction token in the PATH. Discord's docs do not say whether a bot
+   * header is tolerated here, so this sends none rather than resting on
+   * folklore — and it keeps the bot token off a route that has no need of it.
+   *
+   * The token expires 15 minutes after the interaction; a 404 here is the
+   * expected shape of "too late", not an error worth retrying.
+   */
+  async editInteractionResponse(
+    appId: string,
+    token: string,
+    body: { content?: string; components?: unknown[]; flags?: number },
+  ): Promise<RestResult<unknown>> {
+    const response = await fetch(`${API}/webhooks/${appId}/${token}/messages/@original`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "pr-review-bot (https://github.com/paranext, 1.0)",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) return { ok: false, status: response.status, body: await response.text() };
+    if (response.status === 204) return { ok: true, value: undefined };
+    return { ok: true, value: await response.json() };
+  }
+
+  /**
    * One page, newest-first with no cursor; ascending after `after`; descending
    * (older) before `before`. `before` is what a first-run backward walk needs —
    * see Task 14 — since `after=<newest id>` has no messages newer than it to find.
@@ -90,6 +122,30 @@ export class DiscordRest {
    */
   getPins(channelId: string): Promise<RestResult<{ items: { message: DiscordMessage }[] }>> {
     return this.call<{ items: { message: DiscordMessage }[] }>("GET", `/channels/${channelId}/messages/pins`);
+  }
+
+  /**
+   * Guild-wide, NOT per-channel: results must be filtered by `parent_id`. There
+   * is no channel-scoped active-threads route.
+   */
+  getActiveThreads(guildId: string): Promise<RestResult<{ threads: RawThread[] }>> {
+    return this.call<{ threads: RawThread[] }>("GET", `/guilds/${guildId}/threads/active`);
+  }
+
+  /**
+   * Ordered by `archive_timestamp` descending, and it reports `has_more`. We
+   * read ONE page and ignore `has_more` deliberately: only the newest slice can
+   * survive the 24-option cap anyway. (Pagination is available if that ever
+   * changes — `before` here is an ISO8601 timestamp, not a snowflake.)
+   */
+  getArchivedPublicThreads(
+    channelId: string,
+    limit: number,
+  ): Promise<RestResult<{ threads: RawThread[]; has_more?: boolean }>> {
+    return this.call<{ threads: RawThread[]; has_more?: boolean }>(
+      "GET",
+      `/channels/${channelId}/threads/archived/public?limit=${limit}`,
+    );
   }
 
   getApplication(): Promise<RestResult<DiscordApplication>> {

@@ -27,6 +27,8 @@ export function emptyState(): StoreState {
       scanCursors: {},
       scanBackfill: {},
       syncLease: null,
+      prdCache: null,
+      retryStash: {},
     },
   };
 }
@@ -98,6 +100,34 @@ function applyOne(
       return {
         state: { ...state, records: put(state.records, markRequested(withMeta, command.at, command.fields)) },
         result: { kind: "updated" },
+      };
+    }
+
+    case "setRequestMessageId": {
+      const existing = state.records[command.id];
+      if (existing === undefined) return { state, result: { kind: "not-found" } };
+      return {
+        state: { ...state, records: put(state.records, { ...existing, messageId: command.messageId }) },
+        result: { kind: "ok" },
+      };
+    }
+
+    case "stashSubmission": {
+      // Prune first, then add, then cap — in that order. Pruning after adding
+      // could drop the entry just written if the clock is at its expiry, and
+      // capping before adding leaves the map one over.
+      const live = Object.entries(state.meta.retryStash).filter(([, e]) => e.expiresAt > command.now);
+      const withNew = [...live.filter(([k]) => k !== command.key), [command.key, command.entry] as const];
+
+      // Soonest-to-expire is dropped first, so the entry most likely to still be
+      // wanted survives.
+      const capped = withNew
+        .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
+        .slice(Math.max(0, withNew.length - config.budgets.retryStashEntries));
+
+      return {
+        state: { ...state, meta: { ...state.meta, retryStash: Object.fromEntries(capped) } },
+        result: { kind: "ok" },
       };
     }
 

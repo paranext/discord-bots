@@ -111,6 +111,22 @@ describe("rankRows", () => {
     expect(rows.at(-1)?.record.number).toBe(1);
   });
 
+  it("triages a record whose team was removed from config, rather than sorting it above every section", () => {
+    // Dropping a name from `config.teams` is a one-line edit that still
+    // typechecks, and it does not touch records already in the store.
+    // `indexOf` returns -1 for the orphan, which sorted it AHEAD of Power —
+    // opening the pin with a heading for a team that no longer exists.
+    const withoutSimple = { ...baseConfig, teams: ["Power", "General"] as TeamName[] };
+    const rows = rankRows(
+      [rec(1, { team: "Simple", urgency: "blocking" }), rec(2, { team: "Power", urgency: "thisWeek" })],
+      withoutSimple,
+    );
+
+    expect(rows.map((r) => r.section.kind)).toEqual(["team", "triage"]);
+    expect(rows[0]?.record.number).toBe(2);
+    expect(rows[1]?.record.number).toBe(1);
+  });
+
   it("breaks ties on record id so the body is deterministic across ticks", () => {
     const a = rankRows([rec(9, { team: "Power", urgency: "soon" }), rec(4, { team: "Power", urgency: "soon" })], baseConfig);
     const b = rankRows([rec(4, { team: "Power", urgency: "soon" }), rec(9, { team: "Power", urgency: "soon" })], baseConfig);

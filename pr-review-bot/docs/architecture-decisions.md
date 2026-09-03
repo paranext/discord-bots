@@ -525,6 +525,15 @@ to keep re-verifying it.
   comfortably alongside everything else already living in the Durable
   Object's `Meta`.
 
+**Amendment (2026-09-02, plan 2).** The PRD thread cache landed, and the binding
+is still not needed. The cache lives in the Durable Object's `Meta` alongside the
+scan cursors, for a reason this ADR's original framing did not anticipate: KV is
+eventually consistent, and the cache is read *within seconds* of being written —
+a list the cron refreshed is read by the very next modal. So is the retry stash,
+which the v1 spec had already placed in the store. Both values want the
+consistency the Durable Object gives and KV does not, so the ADR's decision
+stands unchanged and this is the last thing that was going to challenge it.
+
 ## adr-durable-object-schema-version
 
 **Context.** All persisted state lives in one serialized object under the
@@ -735,3 +744,37 @@ decision means an endpoint that is silently 404 when someone needs it most.
   there is nothing to be compatible with: this is pre-first-deploy. An
   "optional" secret means the insecure path is the default and stays the
   default for anyone who skips the step.
+
+## adr-not-found-vs-not-visible
+
+**Context.** The v1 spec asks a rejected `/review-request` submission to
+distinguish "this PR does not exist" from "this bot cannot see it" — two
+different problems with two different fixes, one for the requester (fix the
+link) and one for whoever owns the credential (fix access).
+
+**Decision.** Not distinguished per-PR. GitHub's GraphQL API returns the same
+`NOT_FOUND` error type for a PR that genuinely doesn't exist and for one the
+querying credential simply cannot see — `src/github/query.ts` reads both into
+the same `notFound` list, with no field anywhere in the response that says
+which case it was. `src/core/submit.ts`'s `SubmitRejection` reflects that
+honestly: a `"not-found"` reason names the PR, not a cause.
+
+A *wholesale* credential failure for the owner's group — the App key
+rejected, the public token revoked — **is** distinguished, as
+`"credential"`, because `src/github/query.ts`'s `failedGroups` already
+reports it separately from `notFound`, and its fix is not the requester's to
+make at all: no PR link they could paste would help, and telling them "try a
+different link" would be actively wrong.
+
+**Alternatives rejected.**
+- *Guess from the repo's visibility* — asking GitHub whether a repo is
+  public would need working access to that repo to answer, which is exactly
+  what's missing in the case this is trying to detect. The bot cannot see a
+  private repo well enough to report that it's private; that inability *is*
+  the problem, not a side channel around it.
+- *A second, unauthenticated probe* — issue a plain unauthenticated request
+  for the same PR and infer "genuinely doesn't exist" from a 404 there too.
+  Rejected as an extra subrequest on the submit path, which is already the
+  slowest one in the bot (a live GitHub fetch inside a deferred interaction),
+  spent to separate two cases whose fix is nearly identical either way: check
+  the link, or ask whoever owns the credential.

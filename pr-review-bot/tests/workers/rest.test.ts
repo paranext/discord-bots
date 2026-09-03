@@ -9,7 +9,12 @@ import {
 
 interface Call { url: string; method: string; body: unknown; headers: Record<string, string> }
 
-function stubFetch(responses: { status: number; json?: unknown }[]) {
+function stubFetch(responses: { status: number; json?: unknown }[]): Call[];
+function stubFetch(responseFactory: () => Response): ReturnType<typeof vi.fn>;
+function stubFetch(responsesOrFactory: { status: number; json?: unknown }[] | (() => Response)): Call[] | ReturnType<typeof vi.fn> {
+  if (typeof responsesOrFactory === "function") {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async () => responsesOrFactory());
+  }
   const calls: Call[] = [];
   let index = 0;
   vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
@@ -19,13 +24,17 @@ function stubFetch(responses: { status: number; json?: unknown }[]) {
       body: init.body === undefined ? undefined : JSON.parse(String(init.body)),
       headers: init.headers as Record<string, string>,
     });
-    const response = responses[Math.min(index, responses.length - 1)]!;
+    const response = responsesOrFactory[Math.min(index, responsesOrFactory.length - 1)]!;
     index += 1;
     return new Response(response.json === undefined ? null : JSON.stringify(response.json), {
       status: response.status,
     });
   });
   return calls;
+}
+
+function jsonResponse(obj: unknown): Response {
+  return new Response(JSON.stringify(obj), { status: 200 });
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -78,6 +87,33 @@ describe("DiscordRest", () => {
     stubFetch([{ status: 204 }]);
     const result = await new DiscordRest("tok").patchMessage("chan", "m", { embeds: [], components: [] });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("editInteractionResponse", () => {
+  it("PATCHes @original on the webhook route", async () => {
+    const spy = stubFetch(() => jsonResponse({ id: "m-1" }));
+    await new DiscordRest("bot-token").editInteractionResponse("app-1", "tok-1", { content: "done" });
+
+    const [url, init] = spy.mock.calls[0]!;
+    expect(String(url)).toBe("https://discord.com/api/v10/webhooks/app-1/tok-1/messages/@original");
+    expect((init as RequestInit).method).toBe("PATCH");
+  });
+
+  it("sends no Authorization header — the interaction token IS the credential", async () => {
+    const spy = stubFetch(() => jsonResponse({ id: "m-1" }));
+    await new DiscordRest("bot-token").editInteractionResponse("app-1", "tok-1", { content: "done" });
+
+    const headers = new Headers((spy.mock.calls[0]![1] as RequestInit).headers);
+    expect(headers.get("authorization")).toBeNull();
+    // The bot token must not leak onto a route that does not need it.
+    expect(JSON.stringify([...headers])).not.toContain("bot-token");
+  });
+
+  it("reports a failure status rather than throwing", async () => {
+    stubFetch(() => new Response("expired", { status: 404 }));
+    const result = await new DiscordRest("t").editInteractionResponse("app-1", "tok-1", { content: "x" });
+    expect(result).toMatchObject({ ok: false, status: 404 });
   });
 });
 

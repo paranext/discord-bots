@@ -9,8 +9,9 @@ import type { RecordsObject } from "./store/do.js";
  * `@cloudflare/workers-types`) with the bindings and secrets `wrangler.jsonc`
  * declares. Re-run by hand if `wrangler.jsonc`'s bindings change.
  *
- * Deliberately absent: a KV namespace / `META` binding. An earlier ruling
- * dropped it as unused — the cache that would need it belongs to a later plan.
+ * Deliberately absent: a KV namespace / `META` binding. The cache that would
+ * have needed it now lives in the Durable Object instead — see
+ * `adr-no-kv-namespace`.
  */
 declare global {
   namespace Cloudflare {
@@ -20,6 +21,13 @@ declare global {
       DISCORD_PUBLIC_KEY: string;
       DISCORD_GUILD_ID: string;
       DISCORD_BOT_USER_ID: string;
+      /** The application id, for `PATCH /webhooks/{app_id}/{token}/...`. Kept as
+       *  its own secret rather than derived from DISCORD_BOT_USER_ID: the two are
+       *  the same snowflake for a bot application in practice, but that equality
+       *  is undocumented, and getting it wrong 404s every followup edit on a path
+       *  that must not fail. `docs/setup.md` and `scripts/register-commands.ts`
+       *  already use this secret. */
+      DISCORD_APP_ID: string;
       GITHUB_APP_ID: string;
       GITHUB_APP_INSTALLATION_ID: string;
       GITHUB_APP_PRIVATE_KEY: string;

@@ -4,7 +4,11 @@ import { pathToFileURL } from "node:url";
 import { config } from "../config/config.js";
 import { FIXTURE_NOW, SCENARIOS } from "../fixtures/records.js";
 import { renderDigest } from "../src/core/render/digest.js";
-import { buildHtml, type RenderedScenario } from "./template.js";
+import { buildRequestModal } from "../src/handlers/modal.js";
+import type { PrdCache } from "../src/core/prd.js";
+import { renderRejection } from "../src/core/render/rejection.js";
+import type { SubmitRejection, SubmittedValues } from "../src/core/submit.js";
+import { buildHtml, type ModalSpecimen, type RejectionSpecimen, type RenderedScenario } from "./template.js";
 
 // Resolved against the invoking process's working directory, not import.meta.url:
 // this script is run from its *emitted* .js location (see package.json's `preview`
@@ -27,8 +31,110 @@ const rendered: RenderedScenario[] = SCENARIOS.map((scenario) => {
   };
 });
 
+// The four cache states the modal is actually built from: a full but not
+// truncated cache, one over the 24-option cap, a cold/never-refreshed cache,
+// and a full cache combined with a "Fix and retry" prefill.
+const FULL_CACHE: PrdCache = {
+  options: [
+    { id: "1075535230087221248", name: "PT-4398 P10 backend sync-activity signal" },
+    { id: "1075535230087221249", name: "PT-4401 Sync activity indicator" },
+    { id: "1075535230087221250", name: "PT-4363 Internet Settings UI Enhancements" },
+  ],
+  truncated: false,
+  refreshedAt: FIXTURE_NOW,
+};
+
+const TRUNCATED_CACHE: PrdCache = {
+  options: Array.from({ length: 24 }, (_, i) => ({
+    id: `10755352300872${22000 + i}`,
+    name: `PT-${4400 + i} PRD thread number ${i + 1}`,
+  })),
+  truncated: true,
+  refreshedAt: FIXTURE_NOW,
+};
+
+const PREFILL: SubmittedValues = {
+  url: "https://github.com/paranext/paranext-core/pull/2701",
+  team: "Power",
+  urgency: "blocking",
+  prdThreadId: "1075535230087221248",
+  note: "needs a P10 build before Thursday's demo",
+};
+
+const modals: ModalSpecimen[] = [
+  {
+    key: "modal-full",
+    label: "Modal — full cache",
+    description: "A normal refresh: some PRDs, well under the 24-option cap, nothing prefilled.",
+    response: buildRequestModal(config, FULL_CACHE),
+  },
+  {
+    key: "modal-truncated",
+    label: "Modal — truncated cache",
+    description: "More than 24 active PRD threads: the PRD select carries the note that says so.",
+    response: buildRequestModal(config, TRUNCATED_CACHE),
+  },
+  {
+    key: "modal-cold",
+    label: "Modal — cold cache (null)",
+    description: "The cron has never run, or every refresh has failed: PRD select falls back to None alone.",
+    response: buildRequestModal(config, null),
+  },
+  {
+    key: "modal-prefill",
+    label: "Modal — prefilled retry",
+    description: "\"Fix and retry\": every field carries back exactly what the requester typed, unmodified.",
+    response: buildRequestModal(config, FULL_CACHE, PREFILL),
+  },
+];
+
+// Every `SubmitRejection` variant, rendered with a representative echo of what
+// the requester typed. `stashKey` is non-null everywhere except where the
+// handler has nothing to stash a retry against.
+const REJECTION_VALUES: SubmittedValues = {
+  url: "https://github.com/paranext/paranext-core/pull/9999",
+  team: "Power",
+  urgency: "blocking",
+  prdThreadId: "1075535230087221248",
+  note: "needs a P10 build before Thursday's demo",
+};
+
+const REJECTIONS: { key: string; label: string; rejection: SubmitRejection; stashKey: string | null }[] = [
+  { key: "reject-not-a-pr", label: "Rejection — not-a-pr", rejection: { reason: "not-a-pr", detail: "not-a-url" }, stashKey: "stash-1" },
+  { key: "reject-url-too-long", label: "Rejection — url-too-long", rejection: { reason: "url-too-long" }, stashKey: "stash-1a" },
+  { key: "reject-not-allowlisted", label: "Rejection — not-allowlisted", rejection: { reason: "not-allowlisted", slug: "paranext/some-other-repo" }, stashKey: "stash-2" },
+  { key: "reject-invalid-team", label: "Rejection — invalid-team", rejection: { reason: "invalid-team" }, stashKey: "stash-2a" },
+  { key: "reject-invalid-urgency", label: "Rejection — invalid-urgency", rejection: { reason: "invalid-urgency" }, stashKey: "stash-2b" },
+  { key: "reject-note-required", label: "Rejection — note-required", rejection: { reason: "note-required" }, stashKey: "stash-3" },
+  { key: "reject-merged", label: "Rejection — merged", rejection: { reason: "merged" }, stashKey: "stash-4" },
+  { key: "reject-closed", label: "Rejection — closed", rejection: { reason: "closed" }, stashKey: "stash-5" },
+  { key: "reject-not-found", label: "Rejection — not-found", rejection: { reason: "not-found", slug: "paranext/paranext-core/9999" }, stashKey: "stash-6" },
+  { key: "reject-credential", label: "Rejection — credential", rejection: { reason: "credential", slug: "paranext/paranext-core" }, stashKey: null },
+];
+
+// Compile-time proof that the list above is what its comment claims. The prose
+// said "every variant" while two were missing, and both were also the two the
+// tests did not reach — so the claim is asserted by the typechecker now, and a
+// new `SubmitRejection` variant fails the build until it is rendered here.
+type UnrenderedRejection = Exclude<
+  SubmitRejection["reason"],
+  (typeof REJECTIONS)[number]["rejection"]["reason"]
+>;
+const everyRejectionRendered: [UnrenderedRejection] extends [never] ? true : false = true;
+void everyRejectionRendered;
+
+const rejections: RejectionSpecimen[] = REJECTIONS.map((r) => {
+  const result = renderRejection({
+    rejection: r.rejection,
+    values: REJECTION_VALUES,
+    stashKey: r.stashKey,
+    config,
+  });
+  return { key: r.key, label: r.label, content: result.content, components: result.components };
+});
+
 await mkdir(OUT, { recursive: true });
-await writeFile(new URL("index.html", OUT), buildHtml(rendered, FIXTURE_NOW), "utf8");
+await writeFile(new URL("index.html", OUT), buildHtml(rendered, FIXTURE_NOW, modals, rejections), "utf8");
 
 // Tier 2: the raw payload, for pasting into a renderer that applies Discord's own
 // rules. This is what catches wrapping and character budget errors a CSS mock hides.
@@ -46,4 +152,5 @@ for (const r of rendered) {
   const chars = r.embeds.reduce((sum, e) => sum + e.description.length, 0);
   console.log(`${r.key.padEnd(14)} ${String(r.openCount).padStart(3)} open  ${String(r.renderedCount).padStart(3)} rendered  ${String(chars).padStart(5)} chars`);
 }
-console.log("\nwrote preview/out/index.html and preview/out/embeds.json");
+console.log(`\n${modals.length} modal state(s), ${rejections.length} rejection variant(s) rendered.`);
+console.log("wrote preview/out/index.html and preview/out/embeds.json");

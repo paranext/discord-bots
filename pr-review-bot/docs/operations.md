@@ -103,6 +103,28 @@ intervention. If it's still stale after that, look for a tick that's
 throwing before it reaches the lease-release path — `wrangler tail` will show
 the error.
 
+## The `/review-request` PRD dropdown looks empty or stale
+
+**Signature 1:** `wrangler tail` shows `[PRD_CACHE_SKIPPED]` on a tick.
+
+Refresh-loop step 7 (`src/handlers/scheduled.ts`) fetches the guild's active
+threads plus one page of the PRD forum's archived threads and writes the
+result to `Meta.prdCache`. A failed fetch logs `[PRD_CACHE_SKIPPED]` and
+writes nothing — the cache from the last successful refresh is still served,
+deliberately, because a stale list is a working dropdown and an empty one is
+not. Check the bot's channel permissions on the PRD forum
+(`docs/setup.md` step 5) first; a revoked or never-granted `View Channel` /
+`Read Message History` there is the most likely cause.
+
+**Signature 2:** the `/review-request` modal's PRD dropdown offers only
+**None**, with a description saying the list is still loading.
+
+This is the cold-cache case, not "there are no PRDs": the cache has never
+refreshed successfully since this Durable Object was created (or since a
+schema migration reset it). It self-heals on the next successful tick with
+no operator action, unless ticks are also logging `[PRD_CACHE_SKIPPED]`
+(signature 1 above), in which case fix that first.
+
 ## Rotating credentials
 
 | Secret | Blast radius if rotated wrong | What to watch |
@@ -144,6 +166,14 @@ Both are one-line PRs to `config/config.ts`:
 
 Both changes take effect on the next deploy. No data migration is needed —
 `teams` and `repoAllowlist` are read fresh from config on every tick.
+
+**Removing a team** needs no migration either, but say what happens to the rows
+that were already filed under it: they render in **Triage** from the next tick,
+because `ranking.ts` treats a team that is no longer in config as no team at
+all. Nobody has to clean the store — re-request the rows that still matter with
+a team that exists, and the rest age out on their own. (`/review-request`
+already refuses to create a record for a team not in config, so this only ever
+applies to rows that predate the removal.)
 
 ## Store data lost
 

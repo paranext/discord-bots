@@ -12,11 +12,28 @@ file to find it.
 nothing else:
 
 - **`POST /interactions`** (`src/handlers/interactions.ts`) — every Discord
-  interaction: the `/review-list` command, the `Claim a PR ▾` and
-  `Resolve ▾` select menus. Verifies Discord's Ed25519 signature
-  (`src/discord/verify.ts`) against the app's public key before doing
-  anything else with the body. Also handles Discord's PING (interaction type
-  1) so the endpoint URL can be registered in the Developer Portal.
+  interaction. Verifies Discord's Ed25519 signature (`src/discord/verify.ts`)
+  against the app's public key before doing anything else with the body, then
+  routes on interaction type: `ApplicationCommand` for `/review-list` and
+  `/review-request` (the latter opens the modal, built entirely from the
+  cached `Meta.prdCache` — never a live fetch), `ModalSubmit` for the
+  submitted `/review-request` form (deferred with callback type 5, then
+  finished in `waitUntil`), and `MessageComponent` for the `Claim a PR ▾` and
+  `Resolve ▾` select menus plus the **Fix and retry** button a rejected
+  submission carries (routed by its `custom_id` prefix, ahead of the select
+  menus, since a button carries no `values`). Also handles Discord's PING
+  (interaction type 1) so the endpoint URL can be registered in the
+  Developer Portal. `/review-request`, its modal submit, and its retry button
+  are all further gated on `interaction.channel_id` being in
+  `config.allowedChannelIds` (`src/handlers/interactions.ts`), matching how
+  `src/discord/scan.ts` reads the same field.
+
+  The spec asks a stash-expired retry to reopen an empty modal "with a note
+  saying so"; `handleRetryButton` (`src/handlers/reviewRequest.ts`) instead
+  answers with an ephemeral message pointing back at the rejection's echoed
+  values. Deliberate, accepted deviation: a blank form the user has to retype
+  from scratch is worse than being told their old values are still readable
+  in the message above and to run `/review-request` again.
 - **`scheduled()`** (`src/handlers/scheduled.ts`, `runTick`) — a cron trigger
   every five minutes (`wrangler.jsonc`'s `triggers.crons`). Re-syncs against
   GitHub, scans channels for new PR links, clears stale claims, purges
@@ -165,8 +182,8 @@ not grow with the list.
 
 ## Data flow: a link becomes a digest row
 
-1. Someone posts a GitHub PR link in the review channel (hand-typed, or later
-   via `/review-request`).
+1. Someone posts a GitHub PR link in the review channel (hand-typed, or via
+   `/review-request`).
 2. The next tick's scan step (`src/discord/scan.ts`, step 6 of the refresh
    loop) reads new messages in the configured channel since the last cursor,
    extracts allowlisted PR URLs (`src/core/urls.ts`), and turns each into an
@@ -192,6 +209,23 @@ not grow with the list.
    compare-and-set above). A digest message it had to **create** is persisted
    immediately, before the daily post is attempted, so a rejected daily post
    cannot lose the id and cause the next tick to post a second digest.
+
+Independent of that flow, refresh-loop step 7 keeps the `/review-request`
+modal's PRD dropdown current: it fetches `GET /guilds/{id}/threads/active`
+(guild-wide — there is no channel-scoped equivalent, so `src/core/prd.ts`'s
+`buildPrdCache` filters that result by `parent_id`) plus one page of
+`/channels/{id}/threads/archived/public` for the PRD forum channel. The
+archived route is already scoped to the forum channel by its URL, so its
+result is **not** filtered by `parent_id` again — doing so would silently
+drop every archived thread if that route's objects ever omitted the field,
+which is the one failure mode this cache cannot afford (forum posts
+auto-archive; archived threads are most of the list). The merged result is
+written to `Meta.prdCache`. A failed fetch emits no command at all — the
+previous cache is left in place and the tick logs `[PRD_CACHE_SKIPPED]`
+(naming every endpoint that failed) plus an `[PRD_CACHE]` line with the raw
+active/archived thread counts every tick — because a stale dropdown is a
+working dropdown and an empty one is the outage this cache exists to
+prevent. Step 8 (reaction reads) is still plan 3.
 
 ## Spec section → implementation file
 
@@ -241,11 +275,6 @@ cause.
 - No KV namespace, no `META` binding. See `adr-no-kv-namespace` in
   `docs/architecture-decisions.md`.
 - No gateway connection (see above).
-- `/review-request`, its modal, and the PRD thread cache are a later plan.
-  `renderRequestMessage` and the `upsertRequest` command exist and are
-  tested; the command registration and modal handling are not wired up yet
-  (`src/handlers/interactions.ts` returns "That command is not enabled yet."
-  for it).
 - The `:code_review:` reaction claim path (a secondary, best-effort way to
   claim a PR) is a later plan. The digest select menu is the primary and only
   currently-wired claim path.

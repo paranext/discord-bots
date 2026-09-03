@@ -10,6 +10,11 @@ const TEST_PEM =
 
 const HEALTH_TOKEN = "health-secret";
 
+/** A stand-in ExecutionContext for `worker.fetch`, which now requires one. */
+function fetchCtx(): ExecutionContext {
+  return createExecutionContext();
+}
+
 /** `/health` is behind a shared secret, so every reader here must present it.
  *  The env it is checked against comes from `healthEnv`. */
 function healthRequest(): Request {
@@ -18,6 +23,52 @@ function healthRequest(): Request {
 
 function healthEnv(overrides: Record<string, unknown> = {}): Env {
   return { ...env, HEALTH_TOKEN, ...overrides } as unknown as Env;
+}
+
+const DISCORD_APP_ID = "app-1";
+
+/** A throwaway Ed25519 keypair, generated fresh per call — same approach as
+ *  `tests/workers/verify.test.ts`'s `signed` helper, since `worker.fetch`
+ *  reaches the real `verifyDiscordRequest` (index.ts injects no `deps.verify`)
+ *  and so needs a genuinely signed body and a matching public key in env. */
+function toHex(buffer: ArrayBuffer): string {
+  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** An env with the three request-path secrets set, plus a Discord public key
+ *  whose matching private key `signedInteraction` signs with. */
+async function fullEnv(): Promise<{ env: Env; publicKeyHex: string; sign: (body: string, timestamp: string) => Promise<string> }> {
+  const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  const raw = (await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer;
+  const publicKeyHex = toHex(raw);
+  const sign = async (body: string, timestamp: string) =>
+    toHex(await crypto.subtle.sign({ name: "Ed25519" }, pair.privateKey, new TextEncoder().encode(timestamp + body)));
+  return {
+    env: {
+      ...env,
+      DISCORD_PUBLIC_KEY: publicKeyHex,
+      DISCORD_APP_ID,
+      DISCORD_BOT_TOKEN: "bot-token",
+    } as unknown as Env,
+    publicKeyHex,
+    sign,
+  };
+}
+
+/** A genuinely-signed `/interactions` request for the given payload, signed
+ *  against the keypair `fullEnv` produced. */
+async function signedInteraction(
+  payload: unknown,
+  sign: (body: string, timestamp: string) => Promise<string>,
+): Promise<Request> {
+  const body = JSON.stringify(payload);
+  const timestamp = "1756000000";
+  const signature = await sign(body, timestamp);
+  return new Request("https://bot/interactions", {
+    method: "POST",
+    body,
+    headers: { "x-signature-ed25519": signature, "x-signature-timestamp": timestamp },
+  });
 }
 
 function urlOf(input: string | URL | Request): string {
@@ -40,7 +91,7 @@ async function seedOpenRecord(owner: string, repo: string, number: number): Prom
 
 describe("fetch", () => {
   it("serves /health", async () => {
-    const response = await worker.fetch(healthRequest(), healthEnv());
+    const response = await worker.fetch(healthRequest(), healthEnv(), fetchCtx());
     const body = (await response.json()) as { status: string };
     expect(body.status).toBeDefined();
   });
@@ -49,16 +100,17 @@ describe("fetch", () => {
     // The route used to answer any request on any method, handing out the App
     // installation id, credential failure reasons, the digest message id and the
     // lease state to anyone who guessed the workers.dev hostname.
-    const noAuth = await worker.fetch(new Request("https://bot/health"), healthEnv());
+    const noAuth = await worker.fetch(new Request("https://bot/health"), healthEnv(), fetchCtx());
     expect(noAuth.status).toBe(401);
 
     const wrong = await worker.fetch(
       new Request("https://bot/health", { headers: { Authorization: "Bearer nope" } }),
       healthEnv(),
+      fetchCtx(),
     );
     expect(wrong.status).toBe(401);
 
-    const unconfigured = await worker.fetch(healthRequest(), env);
+    const unconfigured = await worker.fetch(healthRequest(), env, fetchCtx());
     expect(unconfigured.status).toBe(404);
   });
 
@@ -66,20 +118,36 @@ describe("fetch", () => {
     const response = await worker.fetch(
       new Request("https://bot/health", { method: "POST", headers: { Authorization: `Bearer ${HEALTH_TOKEN}` } }),
       healthEnv(),
+      fetchCtx(),
     );
     expect(response.status).toBe(405);
   });
 
   it("404s an unknown path", async () => {
-    const response = await worker.fetch(new Request("https://bot/nope"), env);
+    const response = await worker.fetch(new Request("https://bot/nope"), env, fetchCtx());
     expect(response.status).toBe(404);
   });
 
   it("does not route a non-POST request to /interactions to the interaction handler", async () => {
-    const response = await worker.fetch(new Request("https://bot/interactions", { method: "GET" }), env);
+    const response = await worker.fetch(new Request("https://bot/interactions", { method: "GET" }), env, fetchCtx());
     // The interaction handler would 401 an unsigned POST; a GET must not reach
     // it at all, so it falls through to the generic 404 instead.
     expect(response.status).toBe(404);
+  });
+
+  it("passes the Discord client, credentials and app id to the interactions handler", async () => {
+    // Reaching the modal at all proves all three arrived: requestDeps() returns
+    // null without them and the command answers "not enabled yet".
+    const { env: withDeps, sign } = await fullEnv();
+    // The real config's allowedChannelIds gates the command by channel now —
+    // this has to originate from one of them to reach the modal at all.
+    const request = await signedInteraction(
+      { type: 2, data: { name: "review-request" }, channel_id: "REPLACE_WITH_REVIEW_CHANNEL_ID" },
+      sign,
+    );
+    const response = await worker.fetch(request, withDeps, fetchCtx());
+    const body = (await response.json()) as { type: number };
+    expect(body.type).toBe(9);
   });
 });
 
@@ -291,7 +359,7 @@ describe("the credential provider across invocations", () => {
     await worker.scheduled(createScheduledController(), env, ctx);
     await waitOnExecutionContext(ctx);
 
-    const response = await worker.fetch(healthRequest(), healthEnv());
+    const response = await worker.fetch(healthRequest(), healthEnv(), ctx);
     const body = (await response.json()) as { credentials: { public: { failedClosed: boolean; reason: string | null } } };
     expect(body.credentials.public.failedClosed).toBe(true);
     expect(body.credentials.public.reason).toContain("401");
@@ -324,14 +392,14 @@ describe("the credential provider across invocations", () => {
     // The premise: this invocation's provider is now latched fail-closed. If
     // this ever stops holding, the fixture has stopped earning the latch and
     // the assertion below is vacuous.
-    const latched = await worker.fetch(healthRequest(), healthEnv());
+    const latched = await worker.fetch(healthRequest(), healthEnv(), ctx);
     const latchedBody = (await latched.json()) as { credentials: { public: { failedClosed: boolean } } };
     expect(latchedBody.credentials.public.failedClosed).toBe(true);
 
     // The property that matters: the latch above must not outlive the
     // credential that earned it. An operator who rotates the token and
     // redeploys gets a provider that has never failed.
-    const response = await worker.fetch(healthRequest(), healthEnv({ GITHUB_PUBLIC_TOKEN: "ghp_rotated" }));
+    const response = await worker.fetch(healthRequest(), healthEnv({ GITHUB_PUBLIC_TOKEN: "ghp_rotated" }), ctx);
     const body = (await response.json()) as { credentials: { public: { failedClosed: boolean } } };
     expect(body.credentials.public.failedClosed).toBe(false);
   });

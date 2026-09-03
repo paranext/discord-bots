@@ -10,7 +10,11 @@ import { CURRENT_SCHEMA_VERSION, type Meta, type StoreState } from "./types.js";
  * and a renamed one appears under both names. That is fine while the list is
  * short; when it stops being short, this type is the thing to split per version.
  */
-type StoredMeta = Omit<Meta, "digestBodyVersion"> & { digestBodyVersion?: number };
+type StoredMeta = Omit<Meta, "digestBodyVersion" | "prdCache" | "retryStash"> & {
+  digestBodyVersion?: number;
+  prdCache?: Meta["prdCache"];
+  retryStash?: Meta["retryStash"];
+};
 
 /**
  * The persisted object as some earlier deploy could have written it. Version 1 is
@@ -108,6 +112,19 @@ export function migrateState(stored: StoredState): StoreState {
       ...state,
       schemaVersion: 2,
       meta: { ...state.meta, digestBodyVersion: 0 },
+    };
+  }
+
+  // 2 → 3: `Meta.prdCache` and `Meta.retryStash` appeared. Both default to
+  // "nothing cached, nothing stashed", which is exactly the state a fresh
+  // deploy is in and which every reader already handles: the modal offers only
+  // "None" until step 7 first succeeds, and an absent stash key is the same as
+  // an expired one.
+  if (state.schemaVersion === 2) {
+    state = {
+      ...state,
+      schemaVersion: 3,
+      meta: { ...state.meta, prdCache: state.meta.prdCache ?? null, retryStash: state.meta.retryStash ?? {} },
     };
   }
 

@@ -5,11 +5,23 @@ import type { Command, StoreState } from "../../src/store/types.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
 import { newScannedRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
 import { recordId } from "../../src/core/record.js";
+import type { RequestFields } from "../../src/core/record.js";
 
 const T0 = 1_756_000_000_000;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const ID = "paranext/paranext-core/2695";
+const PR = { owner: "paranext", repo: "paranext-core", number: 2695 };
+const FIELDS: RequestFields = {
+  team: "Power",
+  urgency: "soon",
+  prdThreadId: null,
+  note: "",
+  requesterId: "u-1",
+  requesterName: "Jolie",
+  channelId: "chan",
+  messageId: "msg-2",
+};
 
 function withRecord(overrides: Partial<PrRecord> = {}): StoreState {
   const base = newScannedRecord({
@@ -420,5 +432,69 @@ describe("purity", () => {
     const frozen = JSON.stringify(before);
     run(before, { kind: "claim", id: ID, userId: "u1", displayName: "K", at: T0, expectLastRequestedAt: null });
     expect(JSON.stringify(before)).toBe(frozen);
+  });
+});
+
+describe("schema version 3", () => {
+  it("emptyState carries both new meta fields", () => {
+    const state = emptyState();
+    expect(state.schemaVersion).toBe(3);
+    expect(state.meta.prdCache).toBeNull();
+    expect(state.meta.retryStash).toEqual({});
+  });
+});
+
+const VALUES = { url: "https://x", team: "Power", urgency: "soon", prdThreadId: null, note: "" };
+
+describe("setRequestMessageId", () => {
+  it("writes the message id without moving lastRequestedAt or requestCount", () => {
+    const seeded = applyCommands(
+      emptyState(),
+      [{ kind: "upsertRequest", pr: PR, at: T0, fields: FIELDS, title: "T", prAuthorLogin: "jolie", isDraft: false }],
+      config,
+    ).state;
+    const before = seeded.records["paranext/paranext-core/2695"]!;
+
+    const after = applyCommands(seeded, [{ kind: "setRequestMessageId", id: "paranext/paranext-core/2695", messageId: "m-9" }], config);
+    const record = after.state.records["paranext/paranext-core/2695"]!;
+
+    expect(after.results[0]).toEqual({ kind: "ok" });
+    expect(record.messageId).toBe("m-9");
+    // The whole reason this command exists rather than a second upsertRequest.
+    expect(record.lastRequestedAt).toBe(before.lastRequestedAt);
+    expect(record.requestCount).toBe(before.requestCount);
+    expect(record.requestCount).toBe(1);
+  });
+
+  it("reports not-found for a record that is gone", () => {
+    const result = applyCommands(emptyState(), [{ kind: "setRequestMessageId", id: "nope/nope/1", messageId: "m" }], config);
+    expect(result.results[0]).toEqual({ kind: "not-found" });
+  });
+});
+
+describe("stashSubmission", () => {
+  const entry = (expiresAt: number) => ({ userId: "u-1", values: VALUES, expiresAt });
+
+  it("stores an entry under its key", () => {
+    const after = applyCommands(emptyState(), [{ kind: "stashSubmission", key: "i-1", entry: entry(T0 + 1000), now: T0 }], config);
+    expect(after.state.meta.retryStash["i-1"]?.userId).toBe("u-1");
+  });
+
+  it("prunes entries already past their expiry", () => {
+    const seeded = { ...emptyState(), meta: { ...emptyState().meta, retryStash: { old: entry(T0 - 1) } } };
+    const after = applyCommands(seeded, [{ kind: "stashSubmission", key: "new", entry: entry(T0 + 1000), now: T0 }], config);
+    expect(Object.keys(after.state.meta.retryStash)).toEqual(["new"]);
+  });
+
+  it("caps the map at budgets.retryStashEntries, dropping the soonest to expire first", () => {
+    const stash: Record<string, ReturnType<typeof entry>> = {};
+    for (let i = 0; i < config.budgets.retryStashEntries; i += 1) stash[`k${i}`] = entry(T0 + 1000 + i);
+    const seeded = { ...emptyState(), meta: { ...emptyState().meta, retryStash: stash } };
+
+    const after = applyCommands(seeded, [{ kind: "stashSubmission", key: "newest", entry: entry(T0 + 99_999), now: T0 }], config);
+
+    expect(Object.keys(after.state.meta.retryStash)).toHaveLength(config.budgets.retryStashEntries);
+    expect(after.state.meta.retryStash["newest"]).toBeDefined();
+    expect(after.state.meta.retryStash["k0"]).toBeUndefined();
   });
 });

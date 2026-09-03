@@ -29,10 +29,25 @@ export interface Config {
    *  and the interaction handler (which rows are ACCEPTED) so those two
    *  windows cannot drift apart. */
   reopenWindowMs: number;
+  /** How long a rejected submission's values stay stashed for the "Fix and
+   *  retry" button. Deliberately LONGER than Discord's 15-minute interaction
+   *  token: at exactly 15 minutes the expiry branch is unreachable, because the
+   *  button lives on a message created by that same token and dies with it. A
+   *  longer window makes the token the binding constraint and the "your form
+   *  expired" message a path a user can actually reach. */
+  retryStashMs: number;
   scanLookbackMs: number;
   dailyPostHourLocal: number;
   dailyPostTimeZone: string;
-  budgets: { scanPagesPerTick: number; purgePerTick: number; reactionReadsPerTick: number };
+  budgets: {
+    scanPagesPerTick: number;
+    purgePerTick: number;
+    reactionReadsPerTick: number;
+    /** Hard cap on stashed submissions. All state lives under one Durable
+     *  Object key, so an unbounded map on a path with no cap is a storage-size
+     *  problem, not untidiness. Oldest are dropped first. */
+    retryStashEntries: number;
+  };
   /** Off on a CPU-capped host: the submit handler writes and returns, next tick renders. */
   immediateDigestRewrite: boolean;
 }
@@ -66,9 +81,10 @@ export const config: Config = {
   staleBannerMs: 30 * MINUTE,
   retentionMs: 30 * DAY,
   reopenWindowMs: 24 * HOUR,
+  retryStashMs: 30 * MINUTE,
   scanLookbackMs: 7 * DAY,
   dailyPostHourLocal: 9,
   dailyPostTimeZone: "America/Chicago",
-  budgets: { scanPagesPerTick: 5, purgePerTick: 50, reactionReadsPerTick: 10 },
+  budgets: { scanPagesPerTick: 5, purgePerTick: 50, reactionReadsPerTick: 10, retryStashEntries: 50 },
   immediateDigestRewrite: true,
 };

@@ -36,9 +36,23 @@ function sectionOrder(section: Section, config: Config): number {
   return config.teams.length + 1;
 }
 
-function sectionFor(r: PrRecord): Section {
+/**
+ * A record whose team is no longer in config renders as TRIAGE, not as a section
+ * of its own.
+ *
+ * Dropping a name from `config.teams` is a one-line edit that still typechecks —
+ * `TeamName` is a union, not the array — and it does not touch records already
+ * in the store. `sectionOrder`'s `indexOf` returns -1 for such a team, which
+ * sorts it ahead of every real section, so the pin would open with a heading for
+ * a team that no longer exists. `submit.ts` already refuses to CREATE a record
+ * for an unknown team for this exact reason; this is the same guard for the
+ * records that predate the config change, and it makes removing a team degrade
+ * into "those rows need re-triaging" rather than into a corrupt-looking digest.
+ */
+function sectionFor(r: PrRecord, config: Config): Section {
   if (r.claimedBy !== null) return { kind: "claimed" };
   if (r.team === null) return { kind: "triage" };
+  if (!config.teams.includes(r.team)) return { kind: "triage" };
   return { kind: "team", team: r.team };
 }
 
@@ -64,7 +78,7 @@ function byUrgencyThenAge(a: Row, b: Row, config: Config): number {
 export function rankRows(records: PrRecord[], config: Config): Row[] {
   const rows: Row[] = records
     .filter(isOpen)
-    .map((record) => ({ record, id: recordId(record), section: sectionFor(record) }));
+    .map((record) => ({ record, id: recordId(record), section: sectionFor(record, config) }));
 
   return rows.sort((a, b) => {
     const bySection = sectionOrder(a.section, config) - sectionOrder(b.section, config);

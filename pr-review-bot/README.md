@@ -18,9 +18,16 @@ Merging or closing the PR also clears its row.
 **During shadow mode:** nothing changes. Post a PR link in the review channel
 the way you do today, and the bot picks it up within five minutes.
 
-**Later, once `/review-request` is enabled:** run `/review-request`, fill in
-the team, urgency, and (for 🔥 Blocking) a reason, and the bot posts a
-consistent request message and adds the PR to the list immediately.
+**Once `/review-request` is enabled:** run `/review-request` and fill in the
+five fields — PR link, team, urgency, PRD, and a note — then submit. The bot
+posts a consistent request message and adds the PR to the list right away.
+Running the command again on a PR already on the list updates that entry
+instead of adding a second one.
+
+If something's wrong with the submission, the rejection is private (only you
+see it), names the problem and how to fix it, and carries a **Fix and
+retry** button that reopens the form pre-filled with what you typed, so
+fixing one field doesn't mean retyping the rest.
 
 ## How to say you are reviewing something
 

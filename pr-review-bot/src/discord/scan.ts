@@ -98,13 +98,17 @@ async function scanOne(
     let reachedWindowEdge = false;
 
     while (pagesRead < pageBudget) {
+      // Counted BEFORE the outcome is known: `pagesRead` is what the tick report
+      // bills as subrequests and what the page budget is spent from, and a failed
+      // request was still issued. Counting only successes let a channel returning
+      // 5xx spend a request per tick that no budget saw and no report showed.
+      pagesRead += 1;
       const page = await rest.getMessages(channelId, before === undefined ? {} : { before });
       if (!page.ok) {
         // Leave both cursors alone: a tick that dies mid-run re-scans rather than
         // skipping, and re-scanning is safe because identity is owner/repo/number.
         return { commands: [], cursor: null, backfill: undefined, pagesRead, hitCap: false };
       }
-      pagesRead += 1;
 
       const messages: DiscordMessage[] = page.value;
       if (messages.length === 0) {
@@ -155,11 +159,13 @@ async function scanOne(
   let hitCap = false;
 
   while (pagesRead < pageBudget) {
+    // Counted before the outcome is known, for the same reason as the backward
+    // walk above.
+    pagesRead += 1;
     const page = await rest.getMessages(channelId, { after });
     if (!page.ok) {
       return { commands: [], cursor: null, backfill: undefined, pagesRead, hitCap: false };
     }
-    pagesRead += 1;
 
     const messages: DiscordMessage[] = page.value;
     if (messages.length === 0) break;

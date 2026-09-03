@@ -244,6 +244,24 @@ describe("scanChannels", () => {
     expect(outcome.cursors).toEqual({});
     expect(outcome.commands).toHaveLength(0);
   });
+
+  // `pagesRead` is billed as subrequests in the tick report and spent from the
+  // page budget, and a failed page is a request that WAS issued. Counting only
+  // successes let every channel returning 5xx spend a request the budget never
+  // saw and the report never showed — in shadow mode, where the report is the
+  // only view an operator has.
+  it("counts a failed page in pagesRead, paging forward", async () => {
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 500 }));
+    const outcome = await scanChannels(new DiscordRest("tok"), config, { [CHANNEL]: "500" }, {}, "bot-1", T0);
+    expect(outcome.pagesRead).toBe(1);
+  });
+
+  it("counts a failed page in pagesRead on a first run, paging backward", async () => {
+    // The other walk: no cursor, so this is the backward first-run path.
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 500 }));
+    const outcome = await scanChannels(new DiscordRest("tok"), config, {}, {}, "bot-1", T0);
+    expect(outcome.pagesRead).toBe(1);
+  });
 });
 
 describe("scanChannels — sharing the page budget across channels", () => {

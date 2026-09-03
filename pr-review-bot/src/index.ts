@@ -66,7 +66,7 @@ export function isReadOnly(raw: string | undefined): boolean {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // GET (and HEAD) only. The handler is read-only, but the route previously
@@ -91,6 +91,10 @@ export default {
         config,
         publicKey: env.DISCORD_PUBLIC_KEY,
         now: () => Date.now(),
+        waitUntil: (work) => ctx.waitUntil(work),
+        rest: new DiscordRest(env.DISCORD_BOT_TOKEN),
+        credentials: credentialsFor(env),
+        appId: env.DISCORD_APP_ID,
       });
     }
 
@@ -128,6 +132,7 @@ export default {
       credentials: credentialsFor(env),
       config,
       botUserId: env.DISCORD_BOT_USER_ID,
+      guildId: env.DISCORD_GUILD_ID,
       now: Date.now(),
       readOnly: isReadOnly(env.READ_ONLY),
     });

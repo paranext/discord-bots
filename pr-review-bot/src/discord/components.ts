@@ -13,14 +13,27 @@ export const InteractionType = {
 export const CallbackType = {
   Pong: 1,
   ChannelMessageWithSource: 4,
+  /** Answers now, finishes later. The ONLY way the submit path fits Discord's
+   *  3-second budget while doing GitHub and Discord I/O. */
+  DeferredChannelMessageWithSource: 5,
   DeferredUpdateMessage: 6,
+  /** Opens a modal. Not valid in response to a MODAL_SUBMIT or a PING, which is
+   *  why a rejected submission gets a button rather than another modal. */
+  Modal: 9,
 } as const;
 
 export const EPHEMERAL_FLAG = 1 << 6;
 
 export interface InteractionResponse {
   type: number;
-  data?: { content?: string; flags?: number; embeds?: { color: number; description: string }[] };
+  data?: {
+    content?: string;
+    flags?: number;
+    embeds?: { color: number; description: string }[];
+    components?: unknown[];
+    custom_id?: string;
+    title?: string;
+  };
 }
 
 export function pong(): InteractionResponse {

@@ -2,6 +2,8 @@ import type { Config } from "../../config/config.js";
 import type { PrSnapshot } from "../core/exit.js";
 import type { NewScannedInput, PrRecord, RequestFields } from "../core/record.js";
 import type { ParsedPr } from "../core/urls.js";
+import type { PrdCache } from "../core/prd.js";
+import type { SubmittedValues } from "../core/submit.js";
 
 export interface Meta {
   lastSync: number | null;
@@ -50,6 +52,16 @@ export interface Meta {
   scanBackfill: Record<string, string>;
   /** Requires an atomic take, which is why it lives here and not in KV. */
   syncLease: { heldSince: number } | null;
+  /** The PRD dropdown's source, refreshed by step 7. Null before the first
+   *  successful refresh — the modal then offers only "None" and says so, rather
+   *  than refusing to open. */
+  prdCache: PrdCache | null;
+  /** interactionId -> a rejected submission's values, for the "Fix and retry"
+   *  button. Pruned and capped on WRITE (see the `stashSubmission` command),
+   *  never by a tick: `purgeResolved` filters `records` and never reads `meta`,
+   *  and a tick-driven sweep would not run at all when a tick is turned away
+   *  with `lease-held`, nor under READ_ONLY. */
+  retryStash: Record<string, StashedSubmission>;
 }
 
 /**
@@ -68,6 +80,12 @@ export interface Meta {
  */
 export type MetaPatch = Partial<Omit<Meta, "digestBodyVersion">>;
 
+export interface StashedSubmission {
+  userId: string;
+  values: SubmittedValues;
+  expiresAt: number;
+}
+
 export interface StoreState {
   /** Which version of this shape the stored object is. Read on load by
    *  `migrateState` in `src/store/schema.ts`, which is the only place that may
@@ -81,8 +99,9 @@ export interface StoreState {
 /** The version `emptyState()` writes and `migrateState()` upgrades to. Lives
  *  here, next to `LEASE_TIMEOUT_MS`, for the same reason: both `Store`
  *  implementations import it so they cannot drift apart. Version 1 is the
- *  pre-deploy baseline; version 2 added `Meta.digestBodyVersion`. */
-export const CURRENT_SCHEMA_VERSION = 2;
+ *  pre-deploy baseline; version 2 added `Meta.digestBodyVersion`; version 3 added `Meta.prdCache` and
+ *  `Meta.retryStash`. */
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export type Command =
   | { kind: "upsertScanned"; input: NewScannedInput; now: number }
@@ -95,6 +114,24 @@ export type Command =
       prAuthorLogin: string | null;
       isDraft: boolean;
     }
+  /**
+   * Writes the posted request message's id onto an existing record and nothing
+   * else. It exists because the alternative — a second `upsertRequest` — routes
+   * through `markRequested`, which advances `lastRequestedAt` and increments
+   * `requestCount`. That would land a first-time request at `requestCount: 2`
+   * and move the very field the digest's staleness fence compares against, so a
+   * claim on the digest that was just rendered would fail as `stale`.
+   */
+  | { kind: "setRequestMessageId"; id: string; messageId: string }
+  /**
+   * Stashes a rejected submission's values for the "Fix and retry" button,
+   * pruning expired entries and capping the map in the same atomic step.
+   *
+   * A command rather than a `setMeta` patch precisely because of that
+   * read-modify-write: building the new map in the handler and shipping it as a
+   * patch would lose any entry a concurrent tick wrote in between.
+   */
+  | { kind: "stashSubmission"; key: string; entry: StashedSubmission; now: number }
   | { kind: "applySnapshot"; id: string; snapshot: PrSnapshot; now: number }
   | { kind: "markSyncPaused"; id: string; at: number }
   | {
