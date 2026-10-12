@@ -32,4 +32,10 @@ describe("config", () => {
   it("keeps the digest channel among the allowed channels", () => {
     expect(config.allowedChannelIds).toContain(config.digestChannelId);
   });
+
+  it("keeps every reopenable row inside Recently cleared", () => {
+    // A reopen option for a row with no "Recently cleared" line is a menu entry
+    // with nothing in the body to explain it.
+    expect(config.recentlyClearedMs).toBeGreaterThanOrEqual(config.reopenWindowMs);
+  });
 });

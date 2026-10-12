@@ -211,10 +211,38 @@ describe("renderDigest — recently cleared", () => {
     expect(body).toContain("cleared by Jolie");
   });
 
-  it("omits a row resolved outside the one-hour window", () => {
-    const old = resolveRecord(rec(1, { team: "Power" }), NOW - 2 * HOUR, "merged");
+  it("omits a row resolved outside the window", () => {
+    const old = resolveRecord(rec(1, { team: "Power" }), NOW - baseConfig.recentlyClearedMs - HOUR, "merged");
     const body = renderDigest({ records: [old], ...FRESH }).embeds.map((e) => e.description).join("\n");
     expect(body).not.toContain("Recently cleared");
+  });
+
+  it("keeps a row resolved many hours ago — the window is the last day, not the last hour", () => {
+    // Why a day: the digest is the team's standing record of what got cleared,
+    // and an hour-long window meant anyone who looked at it after lunch saw a
+    // morning's worth of finished reviews already gone.
+    const morning = resolveRecord(rec(1, { team: "Power" }), NOW - baseConfig.recentlyClearedMs + HOUR, "review by Katherine");
+    const body = renderDigest({ records: [morning], ...FRESH }).embeds.map((e) => e.description).join("\n");
+    expect(body).toContain("Recently cleared");
+    expect(body).toContain("review by Katherine");
+  });
+
+  it("lists every row cleared inside the window — none drop off on a busy day", () => {
+    // The digest exists so that no PR goes missing. A fixed row cap meant a
+    // team that cleared a dozen PRs in a morning saw only the newest few, with
+    // nothing saying the rest had been cut.
+    const busyMorning = Array.from({ length: 12 }, (_, i) =>
+      resolveRecord(rec(100 + i, { team: "Power" }), NOW - (i + 1) * HOUR, "merged"),
+    );
+    const body = renderDigest({ records: busyMorning, ...FRESH }).embeds.map((e) => e.description).join("\n");
+    for (const r of busyMorning) expect(body).toContain(`paranext-core#${r.number} — merged`);
+  });
+
+  it("shows when each row was cleared", () => {
+    const resolvedAt = NOW - 20 * HOUR;
+    const resolved = resolveRecord(rec(1, { team: "Power" }), resolvedAt, "merged");
+    const body = renderDigest({ records: [resolved], ...FRESH }).embeds.map((e) => e.description).join("\n");
+    expect(body).toContain(`paranext-core#1 — merged · <t:${Math.floor(resolvedAt / 1000)}:R>`);
   });
 
   it("labels a cleared row 'resolved' when resolvedBy is unknown", () => {
@@ -290,23 +318,29 @@ describe("renderDigest — time independence", () => {
 
   it("changes the body hash when a reopen option expires out of the menu", () => {
     // The gap this closes: reopen options are the one time-dependent part of the
-    // render, and once a resolved row ages past recentlyClearedMs (1h) it has NO
-    // text in the body at all. With only the embed text hashed, the hash settled
-    // at T+1h and never moved again, so the tick reported skipped-unchanged
-    // forever and the pin kept offering `↩︎ <title>` past the 24h window — an
-    // option the interaction handler refuses on every selection.
+    // render, and a resolved row past recentlyClearedMs has NO text in the body
+    // at all. With only the embed text hashed, such a row's hash settled while
+    // its reopen option was still live, so the tick reported skipped-unchanged
+    // forever and the pin went on offering `↩︎ <title>` past the reopen window
+    // — an option the interaction handler refuses on every selection.
     //
-    // Both renders are well past the recently-cleared window, so the two bodies
-    // are character-for-character identical; only the menu differs.
+    // Production config keeps recentlyClearedMs >= reopenWindowMs, so this case
+    // cannot arise there; the hash still guards it in case that ever changes.
+    // The windows therefore come from a LOCAL config that breaks the invariant
+    // on purpose: it is the only way to put a reopen option in the menu with no
+    // body line behind it.
+    const shortCleared = { ...baseConfig, recentlyClearedMs: HOUR };
+    // Both renders are well past that one-hour window, so the two bodies are
+    // character-for-character identical; only the menu differs.
     const resolved = resolveRecord(rec(1, { team: "Power", urgency: "soon" }), NOW - 23 * HOUR, "merged");
     const open = rec(2, { team: "Power", urgency: "soon" });
 
-    const inside = renderDigest({ records: [resolved, open], lastSync: NOW, now: NOW, config: baseConfig });
+    const inside = renderDigest({ records: [resolved, open], lastSync: NOW, now: NOW, config: shortCleared });
     const outside = renderDigest({
       records: [resolved, open],
       lastSync: NOW + 2 * HOUR,
       now: NOW + 2 * HOUR,
-      config: baseConfig,
+      config: shortCleared,
     });
 
     // The header's own "updated" stamp is display-only and deliberately unhashed,
@@ -325,11 +359,13 @@ describe("renderDigest — time independence", () => {
     // The guard on the test above: hashing components must not make the hash
     // move with the clock generally, only when the menu's contents actually
     // change. Two ticks four hours apart, both inside the reopen window and both
-    // outside the recently-cleared one, must hash identically.
+    // outside the recently-cleared one, must hash identically. Same local config
+    // as above, and for the same reason.
+    const shortCleared = { ...baseConfig, recentlyClearedMs: HOUR };
     const resolved = resolveRecord(rec(1, { team: "Power", urgency: "soon" }), NOW - 10 * HOUR, "merged");
     const records = [resolved, rec(2, { team: "Power", urgency: "soon" })];
-    const a = renderDigest({ records, lastSync: NOW, now: NOW, config: baseConfig });
-    const b = renderDigest({ records, lastSync: NOW + 4 * HOUR, now: NOW + 4 * HOUR, config: baseConfig });
+    const a = renderDigest({ records, lastSync: NOW, now: NOW, config: shortCleared });
+    const b = renderDigest({ records, lastSync: NOW + 4 * HOUR, now: NOW + 4 * HOUR, config: shortCleared });
     expect(a.bodyHash).toBe(b.bodyHash);
   });
 });

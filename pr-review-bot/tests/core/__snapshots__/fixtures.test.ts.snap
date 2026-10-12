@@ -525,7 +525,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'shadow' 1`] = `
 
 exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
 {
-  "bodyHash": "c1ff29ae",
+  "bodyHash": "a129e40e",
   "components": [
     {
       "components": [
@@ -594,8 +594,8 @@ Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-c
 🧊 This week · [PT-4370 Settings migration](https://github.com/paranext/paranext-core/pull/2688) · <t:1787846400:R>
      paranext-core#2688 · previously claimed
 Recently cleared
-paranext-core#2690 — review by Katherine
-paratext-assistant#88 — cleared by Jolie",
+paranext-core#2690 — review by Katherine · <t:1788191400:R>
+paratext-assistant#88 — cleared by Jolie · <t:1788190500:R>",
     },
   ],
   "openCount": 2,

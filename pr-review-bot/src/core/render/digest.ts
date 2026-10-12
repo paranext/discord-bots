@@ -99,8 +99,12 @@ function renderClaimedRow(r: PrRecord, config: Config): string {
   return `👀 [${r.title}](${prUrl(r)}) · ${r.claimedByName ?? "someone"}${suffix}`;
 }
 
+/** Carries its resolution time: with a day-long window, a clear from this
+ *  morning and one from a minute ago must not read the same. A Discord
+ *  timestamp renders client-side, so this costs the write-skip nothing. */
 function renderClearedLine(r: PrRecord): string {
-  return `${r.repo}#${r.number} — ${r.resolvedBy ?? "resolved"}`;
+  const when = r.resolvedAt === null ? "" : ` · ${relTs(r.resolvedAt)}`;
+  return `${r.repo}#${r.number} — ${r.resolvedBy ?? "resolved"}${when}`;
 }
 
 function buildBlocks(rows: Row[], config: Config): { open: string[]; claimed: string[] } {
@@ -224,10 +228,13 @@ export function renderDigest(input: DigestInput): DigestRender {
 
   const { open, claimed } = buildBlocks(rendered, config);
 
+  // No row cap: every row cleared inside the window is listed. The point of the
+  // digest is that no PR goes missing, and a fixed cap dropped rows silently on
+  // any busy day. Message capacity is the only limit, and running into it adds
+  // the overflow notice rather than cutting rows without a word.
   const cleared = records
     .filter((r) => !isOpen(r) && r.resolvedAt !== null && now - r.resolvedAt <= config.recentlyClearedMs)
-    .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
-    .slice(0, 5);
+    .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0));
 
   const droppedLine =
     droppedCount > 0 ? [`_…and ${droppedCount} more. Use \`/review-list\` to see everything._`] : [];
@@ -306,14 +313,17 @@ export function renderDigest(input: DigestInput): DigestRender {
   // gets split across embeds to satisfy Discord's per-embed character cap —
   // that split is a transport detail, not a content change.
   //
-  // `components` are hashed too, and that is load-bearing rather than tidy: the
-  // reopen options are the one part of the render that depends on wall-clock
-  // time (`now - resolvedAt <= reopenWindowMs`) and has NO representation in the
-  // body once the row ages past `recentlyClearedMs` and leaves "Recently
-  // cleared". With the embed text alone in the hash, that row's body settled an
-  // hour after it resolved, every later tick reported skipped-unchanged, and the
-  // pinned menu went on offering `↩︎ <title>` forever — a menu whose every
-  // selection is refused by the 24h guard in the interaction handler.
+  // `components` are hashed too. The reopen options are the one part of the
+  // render that depends on wall-clock time (`now - resolvedAt <=
+  // reopenWindowMs`). While `recentlyClearedMs >= reopenWindowMs` (a config
+  // test enforces it) and "Recently cleared" lists every row in its window,
+  // each reopen option has a body line, so the body text alone changes when an
+  // option appears or expires. Hashing components keeps that true without
+  // relying on the invariant: if a reopen option ever outlives its body line,
+  // a body-only hash settles while the option is still live, every later tick
+  // reports skipped-unchanged, and the pinned menu goes on offering
+  // `↩︎ <title>` forever — a menu whose every selection is refused by the
+  // reopen-window guard in the interaction handler.
   //
   // This does not reintroduce time-dependence into the hash. Every other input
   // to `components` is record state, and the reopen window itself moves the hash

@@ -24,6 +24,12 @@ export interface Config {
   claimEmoji: string;
   staleClaimMs: number;
   refreshIntervalMs: number;
+  /** How long a resolved row keeps its line under "Recently cleared". A day,
+   *  not an hour: the section is the team's standing record of what got
+   *  cleared, and an hour-long window emptied it before most of the team had
+   *  looked. Must stay >= `reopenWindowMs`: every row the resolve menu offers
+   *  to reopen needs a line here to point at, or the menu carries an entry with
+   *  no context (`tests/core/config.test.ts` enforces this). */
   recentlyClearedMs: number;
   staleBannerMs: number;
   retentionMs: number;
@@ -90,7 +96,7 @@ export const config: Config = {
   claimEmoji: "code_review:1075535230087221248",
   staleClaimMs: 2 * DAY,
   refreshIntervalMs: 5 * MINUTE,
-  recentlyClearedMs: 1 * HOUR,
+  recentlyClearedMs: 24 * HOUR,
   staleBannerMs: 30 * MINUTE,
   retentionMs: 30 * DAY,
   reopenWindowMs: 24 * HOUR,

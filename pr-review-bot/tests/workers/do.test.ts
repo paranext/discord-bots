@@ -446,8 +446,9 @@ describe("RecordsObject", () => {
       authorLogin: "jolie",
       reviews: [{ submittedAt: T0 - 60_000, state: "APPROVED", authorLogin: "alice", authorIsBot: false }],
     };
-    const tickCommands = (now: number): Command[] => [
-      { kind: "applySnapshot", id: xId, snapshot: snapshotX, now },
+    // `resolveAt` is when the snapshot resolves X; it defaults to the tick's own time.
+    const tickCommands = (now: number, resolveAt: number = now): Command[] => [
+      { kind: "applySnapshot", id: xId, snapshot: snapshotX, now: resolveAt },
       { kind: "setMeta", patch: { lastSync: now } },
     ];
 
@@ -530,11 +531,11 @@ describe("RecordsObject", () => {
     // value the tick read. Without this the test proves nothing.
     //
     // If this line ever goes red, FIX THE FIXTURE — do not delete the
-    // assertion. It holds only because `renderDigest` ignores `resolvedAt`,
-    // `claimedAt` and `lastRequestedAt`; if the renderer starts reading any of
-    // them, this sequence stops coming round to the same hash. Deleting the
-    // check would leave a test that still passes while no longer exercising ABA
-    // at all, which is worse than having no test here.
+    // assertion. It holds only because `renderDigest` ignores `claimedAt` and
+    // `lastRequestedAt`, and reads `resolvedAt` only for resolved rows; if the
+    // renderer reads more of them, this sequence stops coming round to the same
+    // hash. Deleting the check would leave a test that still passes while no
+    // longer exercising ABA at all, which is worse than having no test here.
     expect(hashWhenTickResponded).toBe(A);
 
     // So the compare must FAIL, even though the values agree.
@@ -547,9 +548,12 @@ describe("RecordsObject", () => {
 
     // ---- Tick 2 re-derives the identical body from the identical GitHub data.
     // Under a value-based compare it would match the stored hash and report
-    // skipped-unchanged; the stored null forces the repaint.
+    // skipped-unchanged; the stored null forces the repaint. X is re-resolved
+    // at t1, not t2: "Recently cleared" shows each row's resolution time, so a
+    // later stamp would change the body and the compare would fail on value
+    // alone, which is not the case under test.
     await stub.beginTick(t2);
-    const second = await stub.finishTick({ commands: tickCommands(t2), leaseHeldSince: t2, now: t2 });
+    const second = await stub.finishTick({ commands: tickCommands(t2, t1), leaseHeldSince: t2, now: t2 });
     expect(second.digest.bodyHash).toBe(tickHash); // the same body, re-derived
     expect(second.digest.action).toBe("patched");
     expect(displayed.body).toContain("Recently cleared");

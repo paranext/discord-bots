@@ -442,8 +442,9 @@ describe("lost-update ordering", () => {
       authorLogin: "jolie",
       reviews: [{ submittedAt: T0 - MINUTE, state: "APPROVED", authorLogin: "alice", authorIsBot: false }],
     };
-    const tickCommands = (now: number): Command[] => [
-      { kind: "applySnapshot", id: xId, snapshot: snapshotX, now },
+    // `resolveAt` is when the snapshot resolves X; it defaults to the tick's own time.
+    const tickCommands = (now: number, resolveAt: number = now): Command[] => [
+      { kind: "applySnapshot", id: xId, snapshot: snapshotX, now: resolveAt },
       { kind: "setMeta", patch: { lastSync: now } },
     ];
     const hashOf = (records: PrRecord[], lastSync: number, now: number): string =>
@@ -519,10 +520,11 @@ describe("lost-update ordering", () => {
     // really has come back round to that same value.
     //
     // If either goes red, FIX THE FIXTURE — do not delete the assertion. They
-    // hold only because `renderDigest` ignores `resolvedAt`, `claimedAt` and
-    // `lastRequestedAt`; if the renderer starts reading any of them, this
-    // sequence stops returning to the same hash. Deleting the check would leave
-    // a test that still passes while no longer exercising ABA at all.
+    // hold only because `renderDigest` ignores `claimedAt` and
+    // `lastRequestedAt`, and reads `resolvedAt` only for resolved rows; if the
+    // renderer reads more of them, this sequence stops returning to the same
+    // hash. Deleting the check would leave a test that still passes while no
+    // longer exercising ABA at all.
     expect(hashOf(Object.values(beforeWriteBack.records), t1, t1 + 3_000)).toBe(A);
     expect(beforeWriteBack.meta.digestBodyHash).toBe(A);
 
@@ -542,9 +544,12 @@ describe("lost-update ordering", () => {
     // ---- Tick 2 re-resolves X from the same unchanged GitHub data, so its
     // render is byte-identical to tick 1's. Under a value-based compare that
     // render already equals the stored hash and the tick reports
-    // skipped-unchanged; the stored null forces the repaint.
+    // skipped-unchanged; the stored null forces the repaint. X is re-resolved
+    // at t1, not t2: "Recently cleared" shows each row's resolution time, so a
+    // later stamp would change the body and the compare would fail on value
+    // alone, which is not the case under test.
     await store.beginTick(t2);
-    const second = await store.finishTick({ commands: tickCommands(t2), leaseHeldSince: t2, now: t2 });
+    const second = await store.finishTick({ commands: tickCommands(t2, t1), leaseHeldSince: t2, now: t2 });
     expect(second.digest.bodyHash).toBe(tickHash); // the same body, re-derived
     expect(second.digest.action).toBe("patched");
     expect(displayed.body).toContain("Recently cleared");

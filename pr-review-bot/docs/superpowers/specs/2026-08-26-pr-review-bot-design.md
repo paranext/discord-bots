@@ -189,7 +189,9 @@ Checked into the repo, so changes are reviewable one-line PRs:
 - **Claim emoji** — `code_review:1075535230087221248`.
 - **Stale-claim threshold** — 2 days.
 - **Refresh interval** — 5 minutes.
-- **Recently-cleared window** — 1 hour.
+- **Recently-cleared window** — 1 day (originally 1 hour; widened because an
+  hour emptied the section before most of the team had looked). Must be at least
+  the reopen window.
 - **Daily post time** — 09:00 in the team's working timezone, and the channel it
   posts to (the digest channel).
 - **Per-tick budgets** — reaction reads, scan pages, and resolved-record purges.
@@ -390,8 +392,9 @@ Rendering rules:
   need the field; publishing `re-asked Nh ago` turns the pin into a per-author nag
   counter, and combined with `claimedAt` makes the store a per-person latency
   dataset one query from a leaderboard.
-- **Recently cleared** — rows resolved within the configured window (1 hour)
-  render as a short trailing list, distinguishing a review from a manual clear:
+- **Recently cleared** — every row resolved within the configured window (1 day;
+  originally 1 hour) renders, with no row cap, as a trailing list showing when
+  each was cleared, distinguishing a review from a manual clear:
   `#2688 — reviewed by Katherine` against `#177 — cleared by @Jolie`. Without it a
   row vanishes with no explanation to its author, and a handful of those is what
   makes people stop trusting a list. An hour rather than a single tick, because
@@ -1199,7 +1202,8 @@ never displayed, it was ceremonial. 🧊 becomes **This week**, a commitment rat
 than a request not to be reviewed. The **claim age comes off the render**, since
 `Ira · 4d` beside a name in a permanent message was the lateness board the ⚠️ fix
 had only relabelled. **`re-asked` comes off** too, and the README gains a data
-policy. `Resolve` gains a **Recently cleared** line lasting an hour. The fifth
+policy. `Resolve` gains a **Recently cleared** line lasting an hour (later widened to a
+day, see Configuration). The fifth
 finding — that claiming is private cost for public benefit, so **Being reviewed**
 may sit near-empty — is **accepted as a risk rather than fixed.** It is a
 prediction about people, and shadow mode plus stage 3 will show whether it holds;
