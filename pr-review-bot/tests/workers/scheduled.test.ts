@@ -116,7 +116,7 @@ type RestWithDms = DiscordRest & {
   /** "403" answers `createDmChannel` with a rejected-DM-settings response
    *  (logged, never retried); "reject" makes the fetch itself throw, to prove
    *  the DM loop's own guard swallows it without losing the tick's report.
-   *  "post-fail" opens the channel fine but answers `postMessage` with a
+   *  "post-fail" opens the channel fine but answers `postContent` with a
    *  non-2xx `RestResult`, to prove a failed delivery is checked (not just a
    *  rejected fetch) and does not count toward the 2-per-tick cap. Applies to
    *  every DM unless the SAME userId has its own entry in `failDmsFor`. */
@@ -131,7 +131,7 @@ type RestWithDms = DiscordRest & {
 /** A real DiscordRest with `getReactions` overridden, keyed by messageId — the
  *  other routes (scan, PRD threads, GitHub) still go through the stubbed
  *  global fetch set up by `stubAll`, so callers pair this with `stubAll(...)`.
- *  Also stubs the DM route (`createDmChannel` + `postMessage`) and records
+ *  Also stubs the DM route (`createDmChannel` + `postContent`) and records
  *  every successfully DELIVERED DM in `dmCalls`, keyed by the recipient's user
  *  id rather than by the opened channel id. */
 function stubRestWithReactions(byMessage: Record<string, { id: string; username: string; global_name?: string | null }[]>): RestWithDms {
@@ -150,11 +150,11 @@ function stubRestWithReactions(byMessage: Record<string, { id: string; username:
     channelToUser.set(channelId, userId);
     return { ok: true, value: { id: channelId } };
   };
-  rest.postMessage = async (channelId: string, payload) => {
+  rest.postContent = async (channelId: string, content: string) => {
     const userId = channelToUser.get(channelId) ?? channelId;
     const mode = rest.failDmsFor?.[userId] ?? rest.failDms;
     if (mode === "post-fail") return { ok: false, status: 500, body: "{}" };
-    rest.dmCalls.push({ userId, content: (payload as { content: string }).content });
+    rest.dmCalls.push({ userId, content });
     return { ok: true, value: { id: "posted-dm", content: "", timestamp: "", author: { id: "bot", username: "bot" } } };
   };
   return rest;

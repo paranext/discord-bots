@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config as baseConfig } from "../../config/config.js";
 import { newScannedRecord, recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { EPHEMERAL_FLAG } from "../../src/discord/components.js";
 import { DiscordRest } from "../../src/discord/rest.js";
 import { CredentialProvider } from "../../src/github/credentials.js";
 import { handleInteraction } from "../../src/handlers/interactions.js";
@@ -157,7 +158,10 @@ describe("handleInteraction — claim", () => {
     const response = await handleInteraction(componentRequest("digest:claim", value), deps(store));
 
     const body = (await response.json()) as { data: { content: string; flags: number } };
-    expect(body.data.flags).toBe(64);
+    // The ephemeral BIT, not the whole field: the reply also suppresses unfurls
+    // (the title it echoes is free text from GitHub), and this assertion is
+    // about who can see the confirmation, not about what else is set.
+    expect(body.data.flags & EPHEMERAL_FLAG).toBe(EPHEMERAL_FLAG);
     expect(body.data.content).toContain("Fix marker parsing");
 
     const state = await store.readState();
@@ -345,7 +349,7 @@ describe("handleInteraction — /review-request routing", () => {
 
     const body = (await response.json()) as { type: number; data: { flags: number } };
     expect(body.type).toBe(5);
-    expect(body.data.flags).toBe(1 << 6);
+    expect(body.data.flags & EPHEMERAL_FLAG).toBe(EPHEMERAL_FLAG);
     expect(scheduled).toHaveLength(1);
     await scheduled[0];
   });

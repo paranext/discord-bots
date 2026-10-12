@@ -1,6 +1,7 @@
 import type { Config } from "../../config/config.js";
 import type { RawThread } from "../core/prd.js";
 import type { DigestPayload, DigestPublisher } from "../store/types.js";
+import { SUPPRESS_EMBEDS_FLAG } from "./components.js";
 
 const API = "https://discord.com/api/v10";
 
@@ -151,8 +152,22 @@ export class DiscordRest {
     return this.call<DiscordMessage>("PATCH", `/channels/${channelId}/messages/${messageId}`, payload);
   }
 
-  postMessage(channelId: string, payload: DigestPayload | { content: string }): Promise<RestResult<DiscordMessage>> {
+  /** Embeds only. Plain-content posts go through `postContent`, which is the
+   *  one place `SUPPRESS_EMBEDS_FLAG` is set — keeping the two shapes on
+   *  separate methods means the flag can never reach a message whose embeds it
+   *  would blank. */
+  postMessage(channelId: string, payload: DigestPayload): Promise<RestResult<DiscordMessage>> {
     return this.call<DiscordMessage>("POST", `/channels/${channelId}/messages`, payload);
+  }
+
+  /** Every message this bot sends as `content` carries a link somewhere — a PR
+   *  URL, a jump link, or free text from GitHub or a user — so the unfurl is
+   *  always suppressed here rather than remembered at each call site. */
+  postContent(channelId: string, content: string): Promise<RestResult<DiscordMessage>> {
+    return this.call<DiscordMessage>("POST", `/channels/${channelId}/messages`, {
+      content,
+      flags: SUPPRESS_EMBEDS_FLAG,
+    });
   }
 
   /**
@@ -222,7 +237,9 @@ export function makeDigestPublisher(
       return result.ok ? { ok: true, messageId: result.value.id } : { ok: false, status: result.status };
     },
     async postDaily(content) {
-      const result = await rest.postMessage(channelId, { content });
+      // The daily post's jump link points at a discord.com message URL, which
+      // Discord previews like any other link — `postContent` suppresses it.
+      const result = await rest.postContent(channelId, content);
       return result.ok ? { ok: true, messageId: result.value.id } : { ok: false, status: result.status };
     },
     messageUrl(messageId) {

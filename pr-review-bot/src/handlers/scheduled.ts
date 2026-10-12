@@ -146,9 +146,10 @@ async function notifySuperseded(
         continue;
       }
       const title = records[result.id]?.title ?? result.id;
-      const posted = await rest.postMessage(channel.value.id, {
-        content: `\`${result.id}\` (${title}) is already claimed by ${loser.byName} — your \`:code_review:\` reaction did not take.`,
-      });
+      const posted = await rest.postContent(
+        channel.value.id,
+        `\`${result.id}\` (${title}) is already claimed by ${loser.byName} — your \`:code_review:\` reaction did not take.`,
+      );
       counters.subrequests += 1;
       if (!posted.ok) {
         // The channel opened but the post itself failed — logged the same way as

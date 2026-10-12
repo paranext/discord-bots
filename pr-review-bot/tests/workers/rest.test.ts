@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config } from "../../config/config.js";
+import { SUPPRESS_EMBEDS_FLAG } from "../../src/discord/components.js";
 import {
   DiscordRest,
   FLAG_MESSAGE_CONTENT,
@@ -124,6 +125,19 @@ describe("editInteractionResponse", () => {
     const result = await new DiscordRest("t").editInteractionResponse("app-1", "tok-1", { content: "x" });
     expect(result).toMatchObject({ ok: false, status: 404 });
   });
+
+  // `postContent` is the only way to post plain content, so every content send
+  // — the request message, the daily post, a superseded-claim DM — inherits
+  // the suppression rather than having to remember it.
+  it("always suppresses unfurls on a plain-content post", async () => {
+    const calls = stubFetch([{ status: 200, json: { id: "m3" } }]);
+    await new DiscordRest("tok").postContent("c1", "`o/r#9` (Revert https://github.com/o/r/pull/8) is already claimed");
+    expect(calls[0]!.url).toBe("https://discord.com/api/v10/channels/c1/messages");
+    expect(calls[0]!.body).toEqual({
+      content: "`o/r#9` (Revert https://github.com/o/r/pull/8) is already claimed",
+      flags: SUPPRESS_EMBEDS_FLAG,
+    });
+  });
 });
 
 describe("makeDigestPublisher", () => {
@@ -147,7 +161,28 @@ describe("makeDigestPublisher", () => {
     const calls = stubFetch([{ status: 200, json: { id: "m2" } }]);
     const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
     await publisher.postDaily("3 PRs waiting");
-    expect(calls[0]!.body).toEqual({ content: "3 PRs waiting" });
+    expect(calls[0]!.body).toEqual({ content: "3 PRs waiting", flags: SUPPRESS_EMBEDS_FLAG });
+  });
+
+  it("suppresses the daily post's unfurl — its jump link is a discord.com message URL", async () => {
+    const calls = stubFetch([{ status: 200, json: { id: "m2" } }]);
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
+    await publisher.postDaily("3 PRs waiting. [Jump to the list \u2197](https://discord.com/channels/g/c/m1)");
+    expect((calls[0]!.body as { flags?: number }).flags).toBe(SUPPRESS_EMBEDS_FLAG);
+  });
+
+  // The digest IS embeds. SUPPRESS_EMBEDS hides a message's own rich embeds as
+  // well as its unfurls, so setting it here would leave the pinned list blank
+  // while every other signal — the PATCH succeeded, the hash advanced — still
+  // reported success. Nothing in the render depends on an unfurl, so there is
+  // never a reason to set it, and this is the test that says so out loud.
+  it("never suppresses embeds on the digest — the flag would blank the pinned list", async () => {
+    const calls = stubFetch([{ status: 200, json: { id: "m1" } }, { status: 200, json: { id: "m2" } }]);
+    const publisher = makeDigestPublisher(new DiscordRest("tok"), "guild", config);
+    await publisher.patchDigest("m1", payload);
+    await publisher.createDigest(payload);
+    expect((calls[0]!.body as { flags?: number }).flags).toBeUndefined();
+    expect((calls[1]!.body as { flags?: number }).flags).toBeUndefined();
   });
 
   it("returns an empty pin list when the pins call fails, so a 403 does not crash the tick", async () => {

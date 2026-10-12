@@ -27,8 +27,11 @@ export function renderRequestMessage(r: PrRecord, config: Config): string {
 
   if (r.note !== null && r.note.trim() !== "") lines.push(clamp(r.note.trim(), 400));
 
-  // The URL must survive clamping intact: a truncated link kills the unfurl,
-  // which is the whole reason it sits alone on its own line. So the budget is
+  // The URL must survive clamping intact: a truncated link is not a link at
+  // all, and this one is how a reviewer actually gets to the PR. It sits alone
+  // on its own line to stay readable and easy to click — NOT to earn an unfurl.
+  // The unfurl is suppressed at the send (`DiscordRest.postContent`): it duplicates the title, team and urgency this message
+  // already renders, and reviewers were deleting it by hand. So the budget is
   // spent on everything else first.
   const maxHeadLength = DISCORD_MESSAGE_LIMIT - url.length - 1;
   if (maxHeadLength < 1) {

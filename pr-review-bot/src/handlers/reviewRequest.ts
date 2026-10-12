@@ -4,7 +4,13 @@ import { renderRejection, RETRY_PREFIX } from "../core/render/rejection.js";
 import { renderRequestMessage } from "../core/render/request.js";
 import { NOTE_MAX_LENGTH, parseSubmission, type SubmitRejection, type SubmittedValues } from "../core/submit.js";
 import { prSlug, type ParsedPr } from "../core/urls.js";
-import { CallbackType, EPHEMERAL_FLAG, ephemeral, type InteractionResponse } from "../discord/components.js";
+import {
+  CallbackType,
+  EPHEMERAL_FLAG,
+  ephemeral,
+  SUPPRESS_EMBEDS_FLAG,
+  type InteractionResponse,
+} from "../discord/components.js";
 import type { DiscordRest } from "../discord/rest.js";
 import type { CredentialProvider } from "../github/credentials.js";
 import { fetchSnapshots } from "../github/query.js";
@@ -36,6 +42,13 @@ function actorOf(i: SubmitInteraction): { id: string; name: string } | null {
 }
 
 /**
+ * Flags for the deferred reply and every edit of it. SUPPRESS_EMBEDS because the
+ * confirmation names a PR and a rejection echoes the requester's own pasted link
+ * back verbatim, so both unfurl without it.
+ */
+const REPLY_FLAGS = EPHEMERAL_FLAG | SUPPRESS_EMBEDS_FLAG;
+
+/**
  * The one place this handler PATCHes the deferred reply.
  *
  * A missing token is not attempted: without it the PATCH is malformed by
@@ -54,7 +67,14 @@ async function editReply(
     console.error(`reviewRequest: no interaction token, could not ${what}`);
     return;
   }
-  const result = await deps.rest.editInteractionResponse(deps.appId, interaction.token, payload);
+  // The deferral already set these flags; they are repeated here because
+  // Discord's edit docs say to send every previously set bit whenever `flags` is
+  // present, and so the suppression does not hinge on the deferred flags
+  // carrying over to the edit. See `REPLY_FLAGS`.
+  const result = await deps.rest.editInteractionResponse(deps.appId, interaction.token, {
+    ...payload,
+    flags: REPLY_FLAGS,
+  });
   if (!result.ok) {
     console.error(`reviewRequest: ${what} failed`, result.status);
   }
@@ -103,7 +123,7 @@ export async function handleRetryButton(
  */
 export function handleModalSubmit(interaction: SubmitInteraction, deps: RequestDeps): InteractionResponse {
   deps.waitUntil(finishSubmit(interaction, deps));
-  return { type: CallbackType.DeferredChannelMessageWithSource, data: { flags: EPHEMERAL_FLAG } };
+  return { type: CallbackType.DeferredChannelMessageWithSource, data: { flags: REPLY_FLAGS } };
 }
 
 async function reject(
@@ -284,7 +304,7 @@ async function submit(interaction: SubmitInteraction, deps: RequestDeps): Promis
 
   let postedNote = "";
   if (record !== undefined) {
-    const post = await deps.rest.postMessage(fields.channelId, { content: renderRequestMessage(record, deps.config) });
+    const post = await deps.rest.postContent(fields.channelId, renderRequestMessage(record, deps.config));
     if (post.ok) {
       await deps.store.apply([{ kind: "setRequestMessageId", id: slug, messageId: post.value.id }], {
         now,

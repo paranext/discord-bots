@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "../../config/config.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
+import { EPHEMERAL_FLAG, SUPPRESS_EMBEDS_FLAG } from "../../src/discord/components.js";
 import { DiscordRest } from "../../src/discord/rest.js";
 import { CredentialProvider } from "../../src/github/credentials.js";
 import type { FetchOutcome } from "../../src/github/query.js";
@@ -56,8 +57,8 @@ let postFails: boolean;
 /** Bodies seen by the two Discord routes the submit path uses. `fetchSpy` is the
  *  stubbed global `fetch` itself, so the modal test can assert that opening the
  *  modal touched no network at all — not merely that it skipped GitHub. */
-let posted: { content?: string }[];
-let edited: { content?: string; components?: unknown[] }[];
+let posted: { content?: string; flags?: number }[];
+let edited: { content?: string; components?: unknown[]; flags?: number }[];
 let fetchSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -195,7 +196,9 @@ describe("handleModalSubmit", () => {
     // Asserted before anything is awaited: a handler that did the work first and
     // deferred afterwards would not have returned yet.
     expect(response.type).toBe(5);
-    expect(response.data?.flags).toBe(1 << 6);
+    // Suppressed at the deferral as well as on each edit, so the reply never
+    // depends on the edit route honouring `flags` on its own.
+    expect(response.data?.flags).toBe(EPHEMERAL_FLAG | SUPPRESS_EMBEDS_FLAG);
     expect(scheduled).toHaveLength(1);
 
     await scheduled[0];
@@ -298,6 +301,31 @@ describe("finishSubmit", () => {
     expect(record.messageId).toBe("posted-1");
     expect(posted[0]?.content).toContain(URL_OK);
     expect(edited[0]?.content).toContain("on the list");
+  });
+
+  // The PR link sits alone on its own line and is deliberately never clamped,
+  // so without this flag Discord unfurls it into a GitHub embed under every
+  // request — the thing reviewers were deleting by hand. The flag rather than
+  // `<angle brackets>` because the message also interpolates the requester's
+  // free-text note, which can carry a link of its own.
+  it("suppresses the unfurl on the posted request message", async () => {
+    await finishSubmit(submission({ note: "context: https://example.com/spec" }), deps(store));
+    expect(posted[0]?.flags).toBe(SUPPRESS_EMBEDS_FLAG);
+  });
+
+  // EPHEMERAL is repeated on the edit: Discord's edit docs say to send every
+  // previously set bit whenever `flags` is present.
+  it("suppresses the unfurl on the confirmation reply, keeping it ephemeral", async () => {
+    await finishSubmit(submission(), deps(store));
+    expect(edited[0]?.flags).toBe(EPHEMERAL_FLAG | SUPPRESS_EMBEDS_FLAG);
+  });
+
+  // The rejection echoes back the URL the user pasted, so the reply unfurls
+  // whatever they typed — including a link to a repo the bot just refused.
+  it("suppresses the unfurl on a rejection, which echoes the link back verbatim", async () => {
+    await finishSubmit(submission({ url: "https://github.com/someone/else/pull/1" }), deps(store));
+    expect(edited[0]?.content).toContain("not on the repo allowlist");
+    expect(edited[0]?.flags).toBe(EPHEMERAL_FLAG | SUPPRESS_EMBEDS_FLAG);
   });
 
   it("writes the message id back with setRequestMessageId, not a second upsertRequest", async () => {
