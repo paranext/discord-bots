@@ -163,3 +163,20 @@ describe("retryCustomId", () => {
     expect(retryCustomId("i-1")).toBe("request:retry:i-1");
   });
 });
+
+describe("renderRejection — a level with no emoji", () => {
+  const noEmoji = {
+    ...config,
+    urgencies: config.urgencies.map((u) => (u.key === "soon" ? { ...u, emoji: null } : u)),
+  };
+
+  it("lists a no-emoji level by its bare label, with no leading space", () => {
+    const { content } = renderRejection({
+      rejection: { reason: "invalid-urgency" },
+      values,
+      stashKey: "i-1",
+      config: noEmoji,
+    });
+    expect(content).toContain("🔥 Blocking, Soon, 🧊");
+  });
+});

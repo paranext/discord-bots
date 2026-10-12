@@ -1,5 +1,6 @@
 import type { Config } from "../../../config/config.js";
 import type { PrRecord } from "../record.js";
+import { urgencyFor, urgencyText } from "../urgency.js";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
 
@@ -8,11 +9,11 @@ function clamp(text: string, max: number): string {
 }
 
 export function renderRequestMessage(r: PrRecord, config: Config): string {
-  const level = config.urgencies.find((u) => u.key === r.urgency);
+  const level = urgencyFor(r, config);
   const url = `https://github.com/${r.owner}/${r.repo}/pull/${r.number}`;
 
   const headParts: string[] = [];
-  if (level !== undefined) headParts.push(`${level.emoji} **${level.label}**`);
+  if (level !== null) headParts.push(urgencyText(level, { bold: true }));
   if (r.team !== null) headParts.push(r.team.toLowerCase());
   headParts.push(clamp(r.title, 400));
   if (r.isDraft) headParts.push("draft");

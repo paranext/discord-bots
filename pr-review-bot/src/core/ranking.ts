@@ -1,5 +1,6 @@
 import type { Config, TeamName, UrgencyKey } from "../../config/config.js";
 import { isOpen, recordId, type PrRecord } from "./record.js";
+import { urgencyEmojiFor, urgencyLevel } from "./urgency.js";
 
 export type Section =
   | { kind: "team"; team: TeamName }
@@ -27,7 +28,7 @@ export interface MenuOption {
  *  shadow mode this rule decides the entire list. */
 export function urgencyRank(urgency: UrgencyKey | null, config: Config): number {
   if (urgency === null) return Number.MAX_SAFE_INTEGER;
-  return config.urgencies.find((u) => u.key === urgency)?.rank ?? Number.MAX_SAFE_INTEGER - 1;
+  return urgencyLevel(urgency, config)?.rank ?? Number.MAX_SAFE_INTEGER - 1;
 }
 
 function sectionOrder(section: Section, config: Config): number {
@@ -163,8 +164,10 @@ export function menuOptions(rendered: Row[], kind: "claim" | "resolve", config: 
       : rendered;
 
   return eligible.slice(0, 25).map((row) => {
-    const urgency = config.urgencies.find((u) => u.key === row.record.urgency);
-    const prefix = urgency === undefined ? "" : `${urgency.emoji} `;
+    // Emoji only, never the words: a select option's label is capped at 100
+    // characters and the title is the part that must survive.
+    const emoji = urgencyEmojiFor(row.record, config);
+    const prefix = emoji === null ? "" : `${emoji} `;
     // Says who holds it before anyone selects it, so the "already claimed"
     // reply is a confirmation rather than the first anyone hears of it.
     const holder = kind === "claim" && row.record.claimedBy !== null ? (row.record.claimedByName ?? "someone") : null;

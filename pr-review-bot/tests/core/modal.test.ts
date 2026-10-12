@@ -218,3 +218,35 @@ describe("buildRequestModal", () => {
     }
   });
 });
+
+describe("buildRequestModal — urgency option labels", () => {
+  const noEmoji: Config = {
+    ...config,
+    urgencies: config.urgencies.map((u) => (u.key === "soon" ? { ...u, emoji: null } : u)),
+  };
+
+  function urgencyOptions(cfg: Config) {
+    return field(buildRequestModal(cfg, cache(3)), FIELD_IDS.urgency).component["options"] as {
+      value: string;
+      label: string;
+    }[];
+  }
+
+  it("labels a no-emoji level with its bare label, with no leading space", () => {
+    expect(urgencyOptions(noEmoji).find((o) => o.value === "soon")?.label).toBe("Soon");
+  });
+
+  it("keeps the emoji on levels that have one", () => {
+    expect(urgencyOptions(noEmoji).find((o) => o.value === "blocking")?.label).toBe("🔥 Blocking");
+  });
+
+  it("derives the note hint from the level that requires one, rather than hardcoding it", () => {
+    // A hardcoded "🔥 Blocking" in the hint goes stale the moment that level's
+    // emoji or label changes — which is exactly what this branch does.
+    const renamed: Config = {
+      ...config,
+      urgencies: config.urgencies.map((u) => (u.requiresNote ? { ...u, emoji: "🚨", label: "Urgent" } : u)),
+    };
+    expect(field(buildRequestModal(renamed, cache(3)), FIELD_IDS.note).description).toContain("🚨 Urgent");
+  });
+});

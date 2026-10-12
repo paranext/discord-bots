@@ -280,3 +280,15 @@ describe("option value encoding", () => {
     expect(decodeOptionValue("a/b/c:notanumber")).toBeNull();
   });
 });
+
+describe("menuOptions — a level with no emoji", () => {
+  const noEmoji = {
+    ...baseConfig,
+    urgencies: baseConfig.urgencies.map((u) => (u.key === "soon" ? { ...u, emoji: null } : u)),
+  };
+
+  it("starts the option label at the title, with no leading space", () => {
+    const rows = rankRows([rec(1, { team: "Power", urgency: "soon" })], noEmoji);
+    expect(menuOptions(rows, "claim", noEmoji)[0]?.label).toBe("PT-1 Title");
+  });
+});

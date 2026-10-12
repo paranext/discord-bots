@@ -1,5 +1,6 @@
 import type { Config } from "../../../config/config.js";
 import { URL_MAX_LENGTH, type SubmitRejection, type SubmittedValues } from "../submit.js";
+import { noteRequiredLevel, urgencyText } from "../urgency.js";
 
 export const RETRY_PREFIX = "request:retry:";
 
@@ -42,12 +43,12 @@ function headline(rejection: SubmitRejection, config: Config): string {
       );
     case "invalid-urgency":
       return (
-        `That urgency is not on the current list — pick one of: ${config.urgencies.map((u) => `${u.emoji} ${u.label}`).join(", ")}. ` +
+        `That urgency is not on the current list — pick one of: ${config.urgencies.map((u) => urgencyText(u)).join(", ")}. ` +
         "It may have changed since this form was opened."
       );
     case "note-required": {
-      const level = config.urgencies.find((u) => u.requiresNote);
-      const name = level === undefined ? "🔥 Blocking" : `${level.emoji} ${level.label}`;
+      const level = noteRequiredLevel(config);
+      const name = level === null ? "Blocking" : urgencyText(level);
       return (
         `**${name}** needs a note saying what is blocked. ` +
         "The modal cannot ask for it conditionally — it has no re-render — so it is checked here instead."

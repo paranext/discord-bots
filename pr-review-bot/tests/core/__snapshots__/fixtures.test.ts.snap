@@ -320,7 +320,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'never-synced' 1`] 
 
 exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
 {
-  "bodyHash": "cc10c569",
+  "bodyHash": "ba4f80cd",
   "components": [
     {
       "components": [
@@ -334,7 +334,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
             },
             {
               "description": "paranext-core#2701 · Power",
-              "label": "🫕 PT-4401 Sync activity indicator",
+              "label": "PT-4401 Sync activity indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
@@ -349,7 +349,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
             },
             {
               "description": "held by Ira · paranext-core#4325 · Simple",
-              "label": "👀 🫕 PT-4325 Registration Needed Dot",
+              "label": "👀 PT-4325 Registration Needed Dot",
               "value": "paranext/paranext-core/4325:1788105600000",
             },
           ],
@@ -371,7 +371,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
             },
             {
               "description": "paranext-core#2701 · Power",
-              "label": "🫕 PT-4401 Sync activity indicator",
+              "label": "PT-4401 Sync activity indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
@@ -386,7 +386,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
             },
             {
               "description": "paranext-core#4325 · Simple",
-              "label": "🫕 PT-4325 Registration Needed Dot",
+              "label": "PT-4325 Registration Needed Dot",
               "value": "paranext/paranext-core/4325:1788105600000",
             },
           ],
@@ -406,14 +406,14 @@ __Power__
 🔥 Blocking · [PT-4398 P10 backend sync-activity signal](https://github.com/paranext/paratext-10-studio/pull/177) · <t:1787932800:R>
      paratext-10-studio#177 · <#t-trust>
      _needs a P10 build before Thursday's demo_
-🫕 Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
+Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
      paranext-core#2701
 __Simple__
 🧊 This week · [PT-4363 Internet Settings UI Enhancements](https://github.com/paranext/paranext-core/pull/2695) · <t:1787500800:R>
      paranext-core#2695 · draft
 **Being reviewed** (2)
 👀 [PT-3408 Collapse extra spaces in Find queries](https://github.com/paranext/paranext-core/pull/3408) · Katherine · 🔥 Power
-👀 [PT-4325 Registration Needed Dot](https://github.com/paranext/paranext-core/pull/4325) · Ira · 🫕 Simple",
+👀 [PT-4325 Registration Needed Dot](https://github.com/paranext/paranext-core/pull/4325) · Ira · Simple",
     },
   ],
   "openCount": 5,
@@ -525,7 +525,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'shadow' 1`] = `
 
 exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
 {
-  "bodyHash": "30c77c45",
+  "bodyHash": "c1ff29ae",
   "components": [
     {
       "components": [
@@ -534,7 +534,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
           "options": [
             {
               "description": "paranext-core#2701 · Power",
-              "label": "🫕 PT-4401 Sync activity indicator",
+              "label": "PT-4401 Sync activity indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
@@ -556,7 +556,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
           "options": [
             {
               "description": "paranext-core#2701 · Power",
-              "label": "🫕 PT-4401 Sync activity indicator",
+              "label": "PT-4401 Sync activity indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
@@ -589,7 +589,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
       "description": "⚠️ **Not syncing.** Last successful sync <t:1788189180:R>. Rows below may be out of date.
 **Needs review** · 2 open
 __Power__
-🫕 Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
+Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
      paranext-core#2701 · sync paused
 🧊 This week · [PT-4370 Settings migration](https://github.com/paranext/paranext-core/pull/2688) · <t:1787846400:R>
      paranext-core#2688 · previously claimed

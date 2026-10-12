@@ -72,6 +72,7 @@ Deliberately excluded from v1:
 | A stale claim **auto-clears** rather than displaying a warning next to a name | A ⚠️ beside a person in a permanently pinned message is a public lateness board with no context for why they are stuck. The predictable adaptation is that people stop claiming, which destroys the data and makes the section look broken. Auto-clearing returns the PR to its team section where someone else can pick it up — which is the actual goal. |
 | Records live in a **serialized store**, not a shared mutable KV value | KV has no compare-and-swap, is eventually consistent, and caps at one write per second per key. One array under one key, written by both the cron and interactive handlers, loses updates by construction: a claim can be silently erased by a concurrent sync, producing exactly the duplicate review the claim feature exists to prevent. |
 | Blocking urgency requires a reason, **rendered in the digest** | Nothing otherwise caps 🔥, and the rational move for every requester is 🔥, which returns the urgency axis to carrying no information. The reason is only accountable if it is *read*, so it renders inline beneath 🔥 rows in the digest — not solely in a request message that sinks. A reason collected and never displayed is four seconds of unfalsifiable typing buying permanent top-of-list placement. |
+| **Soon carries no icon**; only 🔥 and 🧊 get one | Icons are scanned, not read: their whole job is to split the list into "now" and "can wait" at a glance. A third icon competes with those two for that glance and flattens the only distinction anyone acts on, while the middle level is exactly the one whose icon carries no instruction. Open rows still show the `Soon` label. Claimed rows and claim/resolve menu options show the icon alone, so there Soon looks the same as no urgency — accepted, because by then the PR is claimed or already sorted by rank, and only 🔥 / 🧊 still carry an instruction. |
 | 🧊 means **This week**, not "when there's time" | An urgency level that publicly asks people *not* to review your PR is one nobody selects, which collapses the primary sort axis to one bit — and Problem says low-priority PRs are already the ones that rot. A commitment keeps the third level worth choosing. |
 | One conditional daily post carries the digest | Discord fires a pin notification once, at the initial hand-pin; every subsequent `PATCH` is silent. Tracking changes behavior only if tracked state reaches a human eye, so without a delivery layer v1's claim shrinks to "the author can check instead of bumping". The post names counts and the oldest age only — no individuals — so it is not the per-person nudge the non-goals exclude. |
 | Per-person timing data stays out of the render | `claimedAt` and `requestCount` are needed by auto-clear and dedup, but a claim age beside a name in a permanently pinned message is a lateness board, and `re-asked Nh ago` is a per-author nag counter. Both stay in the store and off the screen. "No review-time analytics" is otherwise a promise about what v1 *builds*, not about what the pin displays. |
@@ -184,7 +185,7 @@ Checked into the repo, so changes are reviewable one-line PRs:
   `paranext/paratext-bible-internal-extensions`,
   `eten-tech-foundation/scripture-editors`.
 - **Teams** — `Power`, `Simple`, `General`.
-- **Urgency levels** — `🔥 Blocking`, `🫕 Soon`, `🧊 This week`.
+- **Urgency levels** — `🔥 Blocking`, `Soon` (no icon), `🧊 This week`.
 - **Claim emoji** — `code_review:1075535230087221248`.
 - **Stale-claim threshold** — 2 days.
 - **Refresh interval** — 5 minutes.
@@ -348,7 +349,7 @@ __Power__
      paratext-10-studio#177 · Trust PRD
      needs a P10 build before Thursday's demo
 
-🫕 Soon · PT-4401 Sync activity indicator · 6 hours ago
+Soon · PT-4401 Sync activity indicator · 6 hours ago
      paranext-core#2701
 
 __Simple__
@@ -357,7 +358,7 @@ __Simple__
 
 **Being reviewed** (2)
 👀 PT-3408 Collapse extra spaces in Find queries · Katherine · 🔥 Power
-👀 PT-4325 Registration Needed Dot · Ira · 🫕 Simple
+👀 PT-4325 Registration Needed Dot · Ira · Simple
 
 Recently cleared
 paranext-core#2688 — reviewed by Katherine

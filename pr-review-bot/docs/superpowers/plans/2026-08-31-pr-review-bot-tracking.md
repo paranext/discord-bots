@@ -26,7 +26,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **A 401 from any credential fails closed** for that credential group and stops retrying. 10,000 invalid responses in 10 minutes risks a temporary IP ban.
 - **Config lives in `config/config.ts`**, typed and checked in, so changes are reviewable one-line PRs. Secrets never appear there.
 - Repo allowlist initial value: `paranext/paranext-core`, `paranext/paratext-10-studio`, `paranext/paratext-assistant`, `paranext/paratext-bible-extensions`, `paranext/paratext-bible-internal-extensions`, `eten-tech-foundation/scripture-editors`.
-- Urgency levels: `🔥 Blocking` (requires a note), `🫕 Soon`, `🧊 This week`. Teams: `Power`, `Simple`, `General`. Refresh interval 5 minutes; stale-claim threshold 2 days; recently-cleared window 1 hour; stale-banner threshold 30 minutes; retention 30 days.
+- Urgency levels: `🔥 Blocking` (requires a note), `Soon` (no icon), `🧊 This week`. Teams: `Power`, `Simple`, `General`. Refresh interval 5 minutes; stale-claim threshold 2 days; recently-cleared window 1 hour; stale-banner threshold 30 minutes; retention 30 days.
 
 ---
 
@@ -215,7 +215,7 @@ export type UrgencyKey = "blocking" | "soon" | "thisWeek";
 
 export interface UrgencyLevel {
   key: UrgencyKey;
-  emoji: string;
+  emoji: string | null;
   label: string;
   /** Lower sorts first. Null urgency (scanned rows) ranks below every level. */
   rank: number;
@@ -265,7 +265,7 @@ export const config: Config = {
   teams: ["Power", "Simple", "General"],
   urgencies: [
     { key: "blocking", emoji: "🔥", label: "Blocking", rank: 0, requiresNote: true },
-    { key: "soon", emoji: "🫕", label: "Soon", rank: 1, requiresNote: false },
+    { key: "soon", emoji: null, label: "Soon", rank: 1, requiresNote: false },
     { key: "thisWeek", emoji: "🧊", label: "This week", rank: 2, requiresNote: false },
   ],
   claimEmoji: "code_review:1075535230087221248",

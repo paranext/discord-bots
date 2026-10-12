@@ -3,6 +3,7 @@ import { stableHash } from "../hash.js";
 import { isOpen, recordId, type PrRecord } from "../record.js";
 import { menuOptions, rankRows, truncateRows, type Row } from "../ranking.js";
 import { isStale, relTs } from "../time.js";
+import { urgencyEmojiFor, urgencyFor, urgencyText } from "../urgency.js";
 
 export const EMBED_DESCRIPTION_LIMIT = 4096;
 export const EMBED_TOTAL_LIMIT = 6000;
@@ -54,8 +55,8 @@ function prUrl(r: PrRecord): string {
 }
 
 function urgencyLabel(r: PrRecord, config: Config): string | null {
-  const level = config.urgencies.find((u) => u.key === r.urgency);
-  return level === undefined ? null : `${level.emoji} ${level.label}`;
+  const level = urgencyFor(r, config);
+  return level === null ? null : urgencyText(level);
 }
 
 function markers(r: PrRecord): string[] {
@@ -92,8 +93,8 @@ function renderOpenRow(r: PrRecord, config: Config): string {
 /** No claim age: a timer beside a name in a permanently pinned message is a
  *  public lateness board, and the rational response to one is to stop claiming. */
 function renderClaimedRow(r: PrRecord, config: Config): string {
-  const urgencyEmoji = urgencyLabel(r, config)?.split(" ")[0];
-  const provenance = [urgencyEmoji, r.team].filter((part): part is string => part !== null && part !== undefined && part !== "").join(" ");
+  const emoji = urgencyEmojiFor(r, config);
+  const provenance = [emoji, r.team].filter((part): part is string => part !== null && part !== "").join(" ");
   const suffix = provenance === "" ? "" : ` · ${provenance}`;
   return `👀 [${r.title}](${prUrl(r)}) · ${r.claimedByName ?? "someone"}${suffix}`;
 }

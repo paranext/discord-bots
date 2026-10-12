@@ -4,7 +4,10 @@ export type UrgencyKey = "blocking" | "soon" | "thisWeek";
 
 export interface UrgencyLevel {
   key: UrgencyKey;
-  emoji: string;
+  /** Null renders the label alone. Not every level earns an icon: the scheme is
+   *  🔥 for "review this now" and 🧊 for "this can wait", and a third icon
+   *  competing with those two would flatten the distinction they exist to draw. */
+  emoji: string | null;
   label: string;
   /** Lower sorts first. Null urgency (scanned rows) ranks below every level. */
   rank: number;
@@ -81,7 +84,7 @@ export const config: Config = {
   teams: ["Power", "Simple", "General"],
   urgencies: [
     { key: "blocking", emoji: "🔥", label: "Blocking", rank: 0, requiresNote: true },
-    { key: "soon", emoji: "🫕", label: "Soon", rank: 1, requiresNote: false },
+    { key: "soon", emoji: null, label: "Soon", rank: 1, requiresNote: false },
     { key: "thisWeek", emoji: "🧊", label: "This week", rank: 2, requiresNote: false },
   ],
   claimEmoji: "code_review:1075535230087221248",

@@ -137,3 +137,16 @@ describe("renderRequestMessage", () => {
     expect(lastLine).toBe(expectedLastLine);
   });
 });
+
+describe("renderRequestMessage — a level with no emoji", () => {
+  const noEmoji = {
+    ...baseConfig,
+    urgencies: baseConfig.urgencies.map((u) => (u.key === "soon" ? { ...u, emoji: null } : u)),
+  };
+
+  it("leads with the bare label, with no leading space before it", () => {
+    expect(renderRequestMessage(rec({ urgency: "soon" }), noEmoji).split("\n")[0]).toBe(
+      "**Soon** · power · PT-4398 P10 backend sync-activity signal",
+    );
+  });
+});

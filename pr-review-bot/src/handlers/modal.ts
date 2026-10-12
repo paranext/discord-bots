@@ -2,6 +2,7 @@ import type { Config } from "../../config/config.js";
 import { FIELD_IDS, MODAL_ID, NOTE_MAX_LENGTH, PRD_NONE, URL_MAX_LENGTH, type SubmittedValues } from "../core/submit.js";
 import { PRD_OPTION_CAP, type PrdCache } from "../core/prd.js";
 import { CallbackType, type InteractionResponse } from "../discord/components.js";
+import { noteRequiredLevel, urgencyText } from "../core/urgency.js";
 
 // Discord's documented caps. Clamped here rather than discovered at runtime: a
 // 400 from Discord on this path is an outage on the primary command.
@@ -15,6 +16,14 @@ const COMPONENT_LABEL = 18;
 const COMPONENT_SELECT = 3;
 const COMPONENT_TEXT = 4;
 const TEXT_STYLE_SHORT = 1;
+
+/** Named from config, not hardcoded: the hint sits beside a select whose option
+ *  labels come from the same array, so a literal here goes stale — silently, and
+ *  in the one place that tells a user the rule before they trip over it. */
+function noteHint(config: Config): string {
+  const level = noteRequiredLevel(config);
+  return level === null ? "Optional." : `Optional, except for ${urgencyText(level)}.`;
+}
 
 function clamp(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max);
@@ -127,7 +136,7 @@ export function buildRequestModal(config: Config, prd: PrdCache | null, prefill?
         label("Urgency", undefined, select(
           FIELD_IDS.urgency,
           config.urgencies.map((u) => ({
-            label: `${u.emoji} ${u.label}`,
+            label: urgencyText(u),
             value: u.key,
             // The requirement rides on the OPTION that triggers it, not on the
             // note field: the field's `required` is static in a payload Discord
@@ -138,7 +147,7 @@ export function buildRequestModal(config: Config, prd: PrdCache | null, prefill?
           prefill?.urgency ?? null,
         )),
         label("PRD", prdNote, select(FIELD_IDS.prd, prdOptions, prefill?.prdThreadId ?? PRD_NONE)),
-        label("Note", "Optional, except for 🔥 Blocking.", text(FIELD_IDS.note, {
+        label("Note", noteHint(config), text(FIELD_IDS.note, {
           required: false,
           placeholder: "just the CSS bit / needs a P10 build",
           value: prefill?.note,

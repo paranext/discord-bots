@@ -584,3 +584,36 @@ describe("renderDigest — capacity", () => {
     expect(result.embeds.map((e) => e.description)).toMatchSnapshot();
   });
 });
+
+describe("renderDigest — a level with no emoji", () => {
+  const noEmoji = {
+    ...baseConfig,
+    urgencies: baseConfig.urgencies.map((u) => (u.key === "soon" ? { ...u, emoji: null } : u)),
+  };
+  const FRESH_NO_EMOJI = { lastSync: NOW - MINUTE, now: NOW, config: noEmoji };
+
+  it("renders an open row's urgency as the bare label, with no leading space", () => {
+    const result = renderDigest({
+      records: [rec(1, { team: "Power", urgency: "soon" })],
+      ...FRESH_NO_EMOJI,
+    });
+    expect(result.embeds[0]?.description).toContain("Soon · [PT-1 Some change]");
+    expect(result.embeds[0]?.description).not.toContain(" Soon ·");
+  });
+
+  it("omits the urgency from a claimed row rather than printing the label's first word", () => {
+    // The emoji-only slot on a claimed row previously came from splitting
+    // "Soon" on its first space, which put the WORD "Soon" where an emoji goes.
+    const claimed = rec(2, {
+      team: "Power",
+      urgency: "soon",
+      claimedBy: "u-9",
+      claimedByName: "Sam",
+      claimedAt: NOW - HOUR,
+      claimSource: "menu" as const,
+    });
+    const result = renderDigest({ records: [claimed], ...FRESH_NO_EMOJI });
+    const body = result.embeds.map((e) => e.description).join("\n");
+    expect(body).toContain("👀 [PT-2 Some change](https://github.com/paranext/paranext-core/pull/2) · Sam · Power");
+  });
+});

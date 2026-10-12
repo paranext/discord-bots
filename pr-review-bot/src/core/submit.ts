@@ -1,5 +1,6 @@
 import type { Config } from "../../config/config.js";
 import { isAllowlisted, parsePrUrl, type ParsedPr, type ParseFailure } from "./urls.js";
+import { urgencyLevel } from "./urgency.js";
 
 /**
  * A modal submission exactly as the user typed it, before any interpretation.
@@ -158,8 +159,8 @@ export function parseSubmission(components: unknown, config: Config): SubmitPars
     return { ok: false, values, rejection: { reason: "invalid-team" } };
   }
 
-  const level = config.urgencies.find((u) => u.key === values.urgency);
-  if (level === undefined) {
+  const level = urgencyLevel(values.urgency, config);
+  if (level === null) {
     return { ok: false, values, rejection: { reason: "invalid-urgency" } };
   }
   if (level.requiresNote === true && values.note.trim() === "") {
