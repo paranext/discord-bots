@@ -10,7 +10,6 @@ function submitted(over: Partial<Record<string, string>> = {}) {
     url: "https://github.com/paranext/paranext-core/pull/9",
     team: "Power",
     urgency: "soon",
-    prd: "none",
     note: "",
     ...over,
   };
@@ -18,7 +17,6 @@ function submitted(over: Partial<Record<string, string>> = {}) {
     { type: 18, component: { type: 4, custom_id: "url", value: values["url"] } },
     { type: 18, component: { type: 3, custom_id: "team", values: [values["team"]] } },
     { type: 18, component: { type: 3, custom_id: "urgency", values: [values["urgency"]] } },
-    { type: 18, component: { type: 3, custom_id: "prd", values: [values["prd"]] } },
     { type: 18, component: { type: 4, custom_id: "note", value: values["note"] } },
   ];
 }
@@ -70,19 +68,6 @@ describe("parseSubmission", () => {
     const result = parseSubmission(submitted(), config);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.pr).toEqual({ owner: "paranext", repo: "paranext-core", number: 9 });
-  });
-
-  it("maps the None sentinel to a null PRD", () => {
-    const result = parseSubmission(submitted(), config);
-    expect(result.values.prdThreadId).toBeNull();
-  });
-
-  it("keeps a chosen PRD thread id", () => {
-    // A real forum thread id, i.e. a snowflake — which is what the parser now
-    // requires, so a placeholder like "t-7" would not exercise the accept path.
-    expect(parseSubmission(submitted({ prd: "1075535230087221248" }), config).values.prdThreadId).toBe(
-      "1075535230087221248",
-    );
   });
 
   it("rejects a URL that is not a GitHub PR, carrying the specific parse failure", () => {
@@ -137,12 +122,7 @@ describe("parseSubmission", () => {
   it("defaults every field when the submission carries none of them", () => {
     const result = parseSubmission([], config);
     expect(result.ok).toBe(false);
-    expect(result.values).toEqual({ url: "", team: "", urgency: "", prdThreadId: null, note: "" });
-  });
-
-  it("treats an explicit empty-string PRD the same as the None sentinel", () => {
-    const result = parseSubmission(submitted({ prd: "" }), config);
-    expect(result.values.prdThreadId).toBeNull();
+    expect(result.values).toEqual({ url: "", team: "", urgency: "", note: "" });
   });
 
   it("returns the raw submitted values on every rejection, so the prefill hands back what was typed", () => {
@@ -150,6 +130,21 @@ describe("parseSubmission", () => {
     expect(result.ok).toBe(false);
     expect(result.values.url).toBe("  not a url  ");
     expect(result.values.note).toBe("keep me");
+  });
+
+  it("ignores a stray `prd` field from a modal opened before the PRD field was removed", () => {
+    // A form opened on the old build and submitted on the new one still carries
+    // the PRD select. The parser reads fields by key, so the extra one must make
+    // no difference at all — not a rejection, and not an extra value.
+    const stray = [
+      ...submitted(),
+      { type: 18, component: { type: 3, custom_id: "prd", values: ["1075535230087221248"] } },
+    ];
+    const withStray = parseSubmission(stray, config);
+    const without = parseSubmission(submitted(), config);
+    expect(withStray).toEqual(without);
+    expect(withStray.ok).toBe(true);
+    expect(Object.keys(withStray.values)).toEqual(["url", "team", "urgency", "note"]);
   });
 });
 
@@ -190,21 +185,6 @@ describe("parseSubmission — the length caps", () => {
     const result = parseSubmission(submitted({ url: "not a url", note }), config);
     expect(result.ok).toBe(false);
     expect(result.values.note).toHaveLength(NOTE_MAX_LENGTH);
-  });
-
-  it("drops a PRD value that is not a snowflake instead of carrying it into the record", () => {
-    // The one field a client not honouring our select could use to push an
-    // arbitrary string into the stash and the record: `team` and `urgency` are
-    // checked against config, `url` and `note` against the caps.
-    const result = parseSubmission(submitted({ prd: "x".repeat(5000) }), config);
-    expect(result.ok).toBe(true);
-    expect(result.values.prdThreadId).toBeNull();
-  });
-
-  it("drops a PRD value one digit past a snowflake's width", () => {
-    // The boundary: 20 digits is a snowflake, 21 is not.
-    expect(parseSubmission(submitted({ prd: "1".repeat(20) }), config).values.prdThreadId).toHaveLength(20);
-    expect(parseSubmission(submitted({ prd: "1".repeat(21) }), config).values.prdThreadId).toBeNull();
   });
 
   it("leaves a URL and note at exactly the cap untouched", () => {

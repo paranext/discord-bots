@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { config } from "../../config/config.js";
 import { applyCommands, emptyState } from "../../src/store/apply.js";
-import type { Command, StoreState } from "../../src/store/types.js";
+import { CURRENT_SCHEMA_VERSION, type Command, type StoreState } from "../../src/store/types.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
 import { newScannedRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
 import { recordId } from "../../src/core/record.js";
@@ -15,7 +15,6 @@ const PR = { owner: "paranext", repo: "paranext-core", number: 2695 };
 const FIELDS: RequestFields = {
   team: "Power",
   urgency: "soon",
-  prdThreadId: null,
   note: "",
   requesterId: "u-1",
   requesterName: "Jolie",
@@ -106,7 +105,6 @@ describe("upsertRequest", () => {
     fields: {
       team: "Power",
       urgency: "blocking",
-      prdThreadId: "t-1",
       note: "blocks the cut",
       requesterId: "u-1",
       requesterName: "Jolie",
@@ -435,16 +433,16 @@ describe("purity", () => {
   });
 });
 
-describe("schema version 4", () => {
-  it("emptyState carries both new meta fields", () => {
+describe("emptyState", () => {
+  it("is stamped with the current schema version and has no PRD cache", () => {
     const state = emptyState();
-    expect(state.schemaVersion).toBe(4);
-    expect(state.meta.prdCache).toBeNull();
+    expect(state.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect("prdCache" in state.meta).toBe(false);
     expect(state.meta.retryStash).toEqual({});
   });
 });
 
-const VALUES = { url: "https://x", team: "Power", urgency: "soon", prdThreadId: null, note: "" };
+const VALUES = { url: "https://x", team: "Power", urgency: "soon", note: "" };
 
 describe("setRequestMessageId", () => {
   it("writes the message id without moving lastRequestedAt or requestCount", () => {

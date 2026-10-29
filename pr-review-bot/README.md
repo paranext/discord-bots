@@ -19,7 +19,7 @@ Merging or closing the PR also clears its row.
 the way you do today, and the bot picks it up within five minutes.
 
 **Once `/review-request` is enabled:** run `/review-request` and fill in the
-five fields — PR link, team, urgency, PRD, and a note — then submit. The bot
+four fields — PR link, team, urgency, and a note — then submit. The bot
 posts a consistent request message and adds the PR to the list right away.
 Running the command again on a PR already on the list updates that entry
 instead of adding a second one.

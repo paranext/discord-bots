@@ -1,5 +1,4 @@
 import type { Config } from "../../config/config.js";
-import type { RawThread } from "../core/prd.js";
 import type { DigestPayload, DigestPublisher } from "../store/types.js";
 import { SUPPRESS_EMBEDS_FLAG } from "./components.js";
 
@@ -185,30 +184,6 @@ export class DiscordRest {
    */
   getPins(channelId: string): Promise<RestResult<{ items: { message: DiscordMessage }[] }>> {
     return this.call<{ items: { message: DiscordMessage }[] }>("GET", `/channels/${channelId}/messages/pins`);
-  }
-
-  /**
-   * Guild-wide, NOT per-channel: results must be filtered by `parent_id`. There
-   * is no channel-scoped active-threads route.
-   */
-  getActiveThreads(guildId: string): Promise<RestResult<{ threads: RawThread[] }>> {
-    return this.call<{ threads: RawThread[] }>("GET", `/guilds/${guildId}/threads/active`);
-  }
-
-  /**
-   * Ordered by `archive_timestamp` descending, and it reports `has_more`. We
-   * read ONE page and ignore `has_more` deliberately: only the newest slice can
-   * survive the 24-option cap anyway. (Pagination is available if that ever
-   * changes — `before` here is an ISO8601 timestamp, not a snowflake.)
-   */
-  getArchivedPublicThreads(
-    channelId: string,
-    limit: number,
-  ): Promise<RestResult<{ threads: RawThread[]; has_more?: boolean }>> {
-    return this.call<{ threads: RawThread[]; has_more?: boolean }>(
-      "GET",
-      `/channels/${channelId}/threads/archived/public?limit=${limit}`,
-    );
   }
 
   getApplication(): Promise<RestResult<DiscordApplication>> {

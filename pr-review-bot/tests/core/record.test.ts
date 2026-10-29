@@ -21,7 +21,6 @@ function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
     messageId: "msg",
     team: "Simple",
     urgency: "thisWeek",
-    prdThreadId: null,
     note: null,
     requesterId: "user-1",
     requesterName: "Jolie",
@@ -111,7 +110,6 @@ describe("markRequested", () => {
   const fields = {
     team: "Power" as const,
     urgency: "blocking" as const,
-    prdThreadId: "thread-1",
     note: "blocks the release cut",
     requesterId: "user-2",
     requesterName: "Ira",
@@ -186,7 +184,7 @@ describe("newScannedRecord", () => {
     expect(r.firstRequestedAt).toBe(T0);
   });
 
-  it("has no team, urgency, prd or note, because nobody supplied them", () => {
+  it("has no team, urgency or note, because nobody supplied them", () => {
     const r = newScannedRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
       channelId: "chan",
@@ -198,7 +196,6 @@ describe("newScannedRecord", () => {
     });
     expect(r.team).toBeNull();
     expect(r.urgency).toBeNull();
-    expect(r.prdThreadId).toBeNull();
     expect(r.note).toBeNull();
     expect(r.source).toBe("scanned");
   });

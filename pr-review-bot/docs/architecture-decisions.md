@@ -212,6 +212,11 @@ timestamps` below for why the long form was chosen anyway despite this cost.
   doubles the edit surface (two messages to keep in sync, two places a
   `PATCH` can fail independently).
 
+**Amendment (2026-10-12).** PRDs are no longer rendered — the field was removed
+when the bot moved to the public server only — so rows no longer carry
+`<#thread>` mentions. The per-row cost above is now an upper estimate; the
+decision and `DEFAULT_MAX_ROWS` are unchanged.
+
 ## adr-scanning-as-permanent-fallback
 
 **Context.** Channel scanning — reading recent messages for GitHub PR links
@@ -534,6 +539,12 @@ which the v1 spec had already placed in the store. Both values want the
 consistency the Durable Object gives and KV does not, so the ADR's decision
 stands unchanged and this is the last thing that was going to challenge it.
 
+**Amendment (2026-10-12).** The PRD thread cache the previous amendment
+describes has been removed, along with refresh-loop step 7 that filled it: the
+PRD forum lived on a server the bot no longer reaches. The retry stash is the
+only one of the two left, and it still wants the Durable Object's consistency,
+so the decision stands.
+
 ## adr-durable-object-schema-version
 
 **Context.** All persisted state lives in one serialized object under the
@@ -659,6 +670,18 @@ on renames and reorderings that are not shape changes at all.
 - *Version each record instead of the whole object* — records are already
   written and read as one blob under one key; per-record versions would add
   N version fields to serialize and still leave `Meta` unversioned.
+
+**Amendment (2026-10-12).** The "currently `2`" above is historical. Versions 3
+and 4 were added by plans 2 and 3. Version 5 (2026-10-12) removed
+`PrRecord.prdThreadId` and the `prdThreadId` in every stashed retry's values,
+and reduced `Meta.prdCache` to a `null` tombstone — the first step to *delete*
+fields, which `StoredMeta`/`StoredRecord` admit as optional so older state
+stays typeable. The tombstone stays because old-build Worker processes still
+serve interactions while a deploy rolls out, and the old modal builder crashes
+on an absent cache but handles `null`. Version 5 is also the first step whose
+cleanup runs on every load, not only on the version bump: an old-build tick
+already in flight at deploy can commit PRD values into state stamped 5, and
+re-stripping on load removes them. The current version is 5.
 
 ## adr-403-throttle-vs-revocation
 

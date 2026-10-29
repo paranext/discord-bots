@@ -5,7 +5,6 @@ import { renderDigest } from "../core/render/digest.js";
 import { isOpen, recordId, type PrRecord } from "../core/record.js";
 import { readReactors } from "../discord/reactions.js";
 import { scanChannels } from "../discord/scan.js";
-import { fetchPrdThreads } from "../discord/threads.js";
 import type { DiscordRest } from "../discord/rest.js";
 import type { CredentialProvider } from "../github/credentials.js";
 import { fetchSnapshots } from "../github/query.js";
@@ -18,9 +17,6 @@ export interface TickDeps {
   credentials: CredentialProvider;
   config: Config;
   botUserId: string;
-  /** For `GET /guilds/{id}/threads/active`, which has no channel-scoped
-   *  equivalent — step 7 must ask guild-wide and filter. */
-  guildId: string;
   now: number;
   /** Runs the whole loop against live data and reports what it would post,
    *  without writing anything to the store or Discord. */
@@ -262,17 +258,7 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
       });
     }
 
-    // 7. Refresh the cached PRD thread list. A failed fetch returns a null cache
-    // and emits NO command, so the previously cached list survives — an empty
-    // dropdown is the outage the cache exists to prevent, and a stale one is a
-    // working dropdown.
-    const prd = await fetchPrdThreads(rest, deps.guildId, config.prdForumChannelId, now);
-    subrequests += prd.requests;
-    if (prd.cache !== null) commands.push({ kind: "setMeta", patch: { prdCache: prd.cache } });
-    // Visible every tick, not only on failure: "archived: 0" every tick is the
-    // exact shape of the bug this counter exists to catch, and it otherwise
-    // needs a fixture to notice.
-    console.log(`[PRD_CACHE] active=${prd.activeCount} archived=${prd.archivedCount}`);
+    // 7. (Retired 2026-10-12 — was the PRD thread cache refresh.)
 
     // 8. Read `:code_review:` reactions, oldest-unchecked first, under an
     // allowance that sheds when the tick is near its subrequest ceiling. The v1

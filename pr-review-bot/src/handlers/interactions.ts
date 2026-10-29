@@ -108,7 +108,7 @@ export async function handleInteraction(request: Request, deps: InteractionDeps)
       if (!isAllowedChannel(deps.config, interaction.channel_id)) return json(notAllowedChannel(deps.config));
       const request = requestDeps(deps);
       if (request === null) return json(ephemeral("That command is not enabled yet."));
-      return json(await openRequestModal(request));
+      return json(openRequestModal(request.config));
     }
     return json(ephemeral("That command is not enabled yet."));
   }

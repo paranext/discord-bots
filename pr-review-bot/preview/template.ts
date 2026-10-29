@@ -9,8 +9,8 @@ export interface RenderedScenario {
   droppedCount: number;
 }
 
-/** One state the `/review-request` modal is rendered in — a full cache, a
- *  truncated one, a cold one, or a prefilled retry. `response` is whatever
+/** One state the `/review-request` modal is rendered in — a fresh request or
+ *  a prefilled retry. `response` is whatever
  *  `buildRequestModal` returned, kept as `unknown` so this module stays
  *  decoupled from the interaction-response type. */
 export interface ModalSpecimen {
@@ -41,7 +41,7 @@ interface RawLabelField {
   };
 }
 
-/** A plain-text sketch of the modal's five fields — the point is to read the
+/** A plain-text sketch of the modal's fields — the point is to read the
  *  labels and descriptions as a person would, which is what caught the v1
  *  spec's timestamp defect. Pretty-printed JSON alone hides that; this is the
  *  companion view that doesn't. */
@@ -96,8 +96,8 @@ function buildModalSection(modals: ModalSpecimen[]): string {
     })
     .join("\n");
   return `<h1>The \`/review-request\` modal</h1>
-<p class="lede">Rendered by <code>src/handlers/modal.ts</code>. Four cache states: a
-full cache, a truncated one, a cold one, and a prefilled retry.</p>
+<p class="lede">Rendered by <code>src/handlers/modal.ts</code>. Two states: a fresh
+request, and a prefilled "Fix and retry".</p>
 ${cards}`;
 }
 

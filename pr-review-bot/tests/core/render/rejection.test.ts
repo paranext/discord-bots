@@ -7,7 +7,6 @@ const values: SubmittedValues = {
   url: "https://github.com/someone/else/pull/1",
   team: "Power",
   urgency: "blocking",
-  prdThreadId: "t-1",
   note: "demo Thursday",
 };
 
@@ -106,19 +105,6 @@ describe("renderRejection", () => {
     expect(content).toContain("blocking");
   });
 
-  it("omits the PRD line when prdThreadId is null", () => {
-    const { content } = renderRejection({
-      rejection: { reason: "merged" },
-      values: { ...values, prdThreadId: null },
-      stashKey: "i-1",
-      config,
-    });
-    expect(content).not.toContain("**PRD:**");
-    expect(content).toContain("https://github.com/someone/else/pull/1");
-    expect(content).toContain("Power");
-    expect(content).toContain("blocking");
-  });
-
   it("carries a Fix and retry button whose custom_id is the stash key", () => {
     const { components } = render({ reason: "merged" }, "abc123");
     const row = components[0] as { components: { custom_id: string; label: string; type: number }[] };
@@ -132,22 +118,21 @@ describe("renderRejection", () => {
   });
 
   it("is an alarm if a field clamp is raised or a field is added to the echo", () => {
-    // Every echoed field (url, team, urgency, prdThreadId, note) is clamped individually
-    // at the source in rejection.ts — these per-field clamps are what keep the message under
-    // Discord's 2000-character limit. Every field below is driven past its own clamp
-    // (prdThreadId and urgency included, at 40 and 300 chars respectively) so that
-    // widening or dropping any single clamp would move content.length and trip this
-    // test. WORST_CASE_BOUND is the true worst case (1620, computed with all clamps
-    // applied) plus a modest margin — it is the alarm if a field clamp is raised, a
-    // field is added to the echo, or the headline is significantly expanded.
-    const WORST_CASE_BOUND = 1700;
+    // Every echoed field (url, team, urgency, note) is clamped individually at
+    // the source in rejection.ts — these per-field clamps are what keep the
+    // message under Discord's 2000-character limit. Every field below is driven
+    // past its own clamp so that widening or dropping any single clamp would
+    // move content.length and trip this test. WORST_CASE_BOUND is the measured
+    // worst case (1565 with all clamps applied, since one echoed field was
+    // removed) plus a margin — it is the alarm if a field clamp is raised,
+    // a field is added to the echo, or the headline is significantly expanded.
+    const WORST_CASE_BOUND = 1645;
     const { content } = renderRejection({
       rejection: { reason: "not-allowlisted", slug: "x".repeat(900) },
       values: {
         url: "u".repeat(900),
         team: "t".repeat(900),
         urgency: "g".repeat(900),
-        prdThreadId: "p".repeat(900),
         note: "n".repeat(900),
       },
       stashKey: "i-1",

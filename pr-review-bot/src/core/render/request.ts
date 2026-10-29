@@ -20,10 +20,7 @@ export function renderRequestMessage(r: PrRecord, config: Config): string {
 
   const lines: string[] = [headParts.join(" · ")];
 
-  const attribution: string[] = [];
-  if (r.prdThreadId !== null) attribution.push(`<#${r.prdThreadId}>`);
-  if (r.requesterId !== null) attribution.push(`requested by <@${r.requesterId}>`);
-  if (attribution.length > 0) lines.push(attribution.join(" · "));
+  if (r.requesterId !== null) lines.push(`requested by <@${r.requesterId}>`);
 
   if (r.note !== null && r.note.trim() !== "") lines.push(clamp(r.note.trim(), 400));
 

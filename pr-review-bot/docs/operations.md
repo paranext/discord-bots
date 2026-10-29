@@ -103,28 +103,6 @@ intervention. If it's still stale after that, look for a tick that's
 throwing before it reaches the lease-release path — `wrangler tail` will show
 the error.
 
-## The `/review-request` PRD dropdown looks empty or stale
-
-**Signature 1:** `wrangler tail` shows `[PRD_CACHE_SKIPPED]` on a tick.
-
-Refresh-loop step 7 (`src/handlers/scheduled.ts`) fetches the guild's active
-threads plus one page of the PRD forum's archived threads and writes the
-result to `Meta.prdCache`. A failed fetch logs `[PRD_CACHE_SKIPPED]` and
-writes nothing — the cache from the last successful refresh is still served,
-deliberately, because a stale list is a working dropdown and an empty one is
-not. Check the bot's channel permissions on the PRD forum
-(`docs/setup.md` step 5) first; a revoked or never-granted `View Channel` /
-`Read Message History` there is the most likely cause.
-
-**Signature 2:** the `/review-request` modal's PRD dropdown offers only
-**None**, with a description saying the list is still loading.
-
-This is the cold-cache case, not "there are no PRDs": the cache has never
-refreshed successfully since this Durable Object was created (or since a
-schema migration reset it). It self-heals on the next successful tick with
-no operator action, unless ticks are also logging `[PRD_CACHE_SKIPPED]`
-(signature 1 above), in which case fix that first.
-
 ## Rotating credentials
 
 | Secret | Blast radius if rotated wrong | What to watch |
@@ -188,7 +166,7 @@ restore:
    any PR links still visible in the channel's recent history.
 2. For anything requested via `/review-request` outside that window, re-read
    the bot's own past request messages in the channel (they carry the same
-   team/urgency/PRD/note information that was in the lost record) and
+   team/urgency/note information that was in the lost record) and
    re-run `/review-request` on each one to recreate it.
 
 This is why records are retained for 30 days after resolution instead of
@@ -217,7 +195,7 @@ While shadow mode is running, log daily:
 
 **Honest limits of this measurement, so they aren't forgotten mid-sprint:**
 every row scanned during shadow mode lands in **Needs triage** — team
-grouping, urgency ordering, and PRD rendering get **no** real-world exercise
+grouping and urgency ordering get **no** real-world exercise
 here, and team grouping is the primary design axis of the whole digest.
 Shadow mode validates only the sync loop: whether rows appear and disappear
 correctly on their own. That is deliberately the half being tested here,
@@ -300,11 +278,12 @@ confirmed working before `/review-request` is enabled.
   `reactionReadsPerTick`, whatever the mix of one- and two-request reads —
   fewer records get polled when confirmations are common, which is the
   intended trade. At the current default of 10, with a worst realistic
-  pre-step-8 spend of about 11, that is
-  `11 + 10 + 1 (finishTick) + 4 (superseded DMs) = 26` against the ceiling of
+  pre-step-8 spend of about 9 (it was 11 while the retired step 7 spent two
+  PRD thread reads), that is
+  `9 + 10 + 1 (finishTick) + 4 (superseded DMs) = 24` against the ceiling of
   50 (`SUBREQUEST_CEILING` in `config/config.ts`). The margin is real but not
   unlimited, and `RESERVE = 5` is what holds the last two terms back: redo
-  this sum with the tick's actual pre-step-8 count — not the 11 above — before
+  this sum with the tick's actual pre-step-8 count — not the 9 above — before
   raising the budget.
 - **The superseded-DM budget is four subrequests, spent or not
   (`DM_SUBREQUEST_CAP`).** Two subrequests buy one delivered DM, so a healthy

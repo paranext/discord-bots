@@ -20,7 +20,6 @@ function rec(overrides: Partial<PrRecord> = {}): PrRecord {
     team: "Power",
     urgency: "blocking",
     note: "needs a P10 build before Thursday's demo",
-    prdThreadId: "t-1",
     requesterId: "u-1",
     requesterName: "Jolie",
     source: "command",
@@ -41,16 +40,10 @@ describe("renderRequestMessage", () => {
     );
   });
 
-  it("renders the PRD as a thread mention and names the requester", () => {
+  it("names the requester and mentions no channel", () => {
     const body = renderRequestMessage(rec(), baseConfig);
-    expect(body).toContain("<#t-1>");
     expect(body).toContain("<@u-1>");
-  });
-
-  it("omits the PRD line entirely when there is none", () => {
-    const body = renderRequestMessage(rec({ prdThreadId: null }), baseConfig);
     expect(body).not.toContain("<#");
-    expect(body).toContain("<@u-1>");
   });
 
   it("includes the note on its own line when present", () => {
@@ -102,18 +95,11 @@ describe("renderRequestMessage", () => {
     expect(body.split("\n")[0]).toBe("🔥 **Blocking** · PT-4398 P10 backend sync-activity signal");
   });
 
-  it("omits 'requested by' when the requester is unknown, keeping the PRD mention", () => {
-    const body = renderRequestMessage(rec({ requesterId: null }), baseConfig);
-    const lines = body.split("\n");
-    expect(lines[1]).toBe("<#t-1>");
-    expect(body).not.toContain("requested by");
-  });
-
-  it("omits the attribution line entirely when there is neither a PRD nor a requester", () => {
-    // Both halves of the attribution join are absent, so the line must not
+  it("omits the attribution line entirely when the requester is unknown", () => {
+    // The requester is the attribution line's only part, so the line must not
     // appear at all — not even as an empty line — leaving the note directly
     // beneath the head.
-    const body = renderRequestMessage(rec({ requesterId: null, prdThreadId: null }), baseConfig);
+    const body = renderRequestMessage(rec({ requesterId: null }), baseConfig);
     const lines = body.split("\n");
     expect(lines[1]).toBe("needs a P10 build before Thursday's demo");
     expect(body).not.toContain("<#");

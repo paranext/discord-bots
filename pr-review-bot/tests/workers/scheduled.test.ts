@@ -64,31 +64,13 @@ function seeded(records: PrRecord[]): StoreState {
   };
 }
 
-/** Set by individual tests to make both PRD thread routes 500, and reset in
- *  `afterEach` below so ordering between tests cannot leak it. */
-let threadsFail = false;
-
-/** Routes stubbed fetch by url: GitHub GraphQL vs Discord messages vs the two
- *  PRD thread routes (step 7). The thread routes are matched on exact path
- *  shape (`/guilds/{id}/threads/active`, `/channels/{id}/threads/archived/public`)
- *  so they cannot accidentally swallow requests other tests rely on, such as
- *  `/channels/{id}/messages`. */
+/** Routes stubbed fetch by url: GitHub GraphQL vs Discord pins vs Discord
+ *  messages. */
 function stubAll(opts: { graphql?: unknown; graphqlStatus?: number; messages?: unknown[] }) {
   vi.stubGlobal("fetch", async (input: string, _init: RequestInit) => {
     const url = String(input);
     if (url.includes("api.github.com/graphql")) {
       return new Response(JSON.stringify(opts.graphql ?? { data: {} }), { status: opts.graphqlStatus ?? 200 });
-    }
-    if (/\/guilds\/[^/]+\/threads\/active(\?|$)/.test(url)) {
-      if (threadsFail) return new Response("{}", { status: 500 });
-      return new Response(
-        JSON.stringify({ threads: [{ id: "200", name: "Trust PRD", parent_id: config.prdForumChannelId, last_message_id: "900" }] }),
-        { status: 200 },
-      );
-    }
-    if (/\/channels\/[^/]+\/threads\/archived\/public(\?|$)/.test(url)) {
-      if (threadsFail) return new Response("{}", { status: 500 });
-      return new Response(JSON.stringify({ threads: [] }), { status: 200 });
     }
     if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
     if (url.includes("/messages")) return new Response(JSON.stringify(opts.messages ?? []), { status: 200 });
@@ -129,7 +111,7 @@ type RestWithDms = DiscordRest & {
 };
 
 /** A real DiscordRest with `getReactions` overridden, keyed by messageId — the
- *  other routes (scan, PRD threads, GitHub) still go through the stubbed
+ *  other routes (scan, GitHub) still go through the stubbed
  *  global fetch set up by `stubAll`, so callers pair this with `stubAll(...)`.
  *  Also stubs the DM route (`createDmChannel` + `postContent`) and records
  *  every successfully DELIVERED DM in `dmCalls`, keyed by the recipient's user
@@ -184,7 +166,6 @@ function deps(store: Store, overrides: Partial<Parameters<typeof runTick>[0]> = 
     credentials: new CredentialProvider(secrets),
     config,
     botUserId: "bot-1",
-    guildId: "g-1",
     now: T0,
     ...overrides,
   };
@@ -219,7 +200,6 @@ function countingStore(inner: Store) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  threadsFail = false;
 });
 
 describe("runTick — the lease", () => {
@@ -300,7 +280,7 @@ describe("runTick — the exit condition end to end", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "eten-tech-foundation", repo: "scripture-editors", number: 1 },
          at: T0 - 60_000,
-         fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "addressed the feedback", requesterId: "u1", requesterName: "Jolie", channelId: CHANNEL, messageId: "m-new" },
+         fields: { team: "Power", urgency: "blocking", note: "addressed the feedback", requesterId: "u1", requesterName: "Jolie", channelId: CHANNEL, messageId: "m-new" },
          title: "PT-1", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0 - 60_000, rerender: false },
     );
@@ -473,10 +453,10 @@ describe("runTick — scanning and housekeeping", () => {
     // The design invariant is "at most TWO store subrequests per tick, independent
     // of record count" — `< 50` would also pass a regression that read the store
     // once per record. Pin the exact count: 1 beginTick + 2 GraphQL chunks (40
-    // records, chunked to 25) + 1 scan page (no messages) + 2 PRD thread reads
-    // (step 7) + 10 reaction reads (step 8, capped by `reactionReadsPerTick`,
-    // since all 40 records are open, unclaimed, and eligible) + 1 finishTick.
-    expect(report.subrequests).toBe(17);
+    // records, chunked to 25) + 1 scan page (no messages) + 10 reaction reads
+    // (step 8, capped by `reactionReadsPerTick`, since all 40 records are open,
+    // unclaimed, and eligible) + 1 finishTick.
+    expect(report.subrequests).toBe(15);
   });
 });
 
@@ -703,15 +683,14 @@ describe("runTick — read-only mode", () => {
 
   it("counts the lease-releasing apply as a subrequest (R46b)", async () => {
     // 1 beginTick + 1 GraphQL chunk (1 record) + 1 scan page (no messages) +
-    // 2 PRD thread reads (step 7) + 1 reaction read (step 8: the one record is
-    // open, unclaimed and eligible) + 1 lease-releasing apply = 7. Undercounting
-    // would report 6.
+    // 1 reaction read (step 8: the one record is open, unclaimed and eligible)
+    // + 1 lease-releasing apply = 5. Undercounting would report 4.
     stubAll({ graphql: { data: { p0: { pullRequest: { number: 1, title: "PT-1", isDraft: false, merged: false, state: "OPEN", author: { login: "jolie" }, reviews: { nodes: [] } } } } } });
     const { publisher } = makePublisher();
     const store = new MemoryStore(config, publisher, seeded([record(1)]));
 
     const report = await runTick(deps(store, { readOnly: true }));
-    expect(report.subrequests).toBe(7);
+    expect(report.subrequests).toBe(5);
   });
 });
 
@@ -736,55 +715,25 @@ describe("runTick — lease release on a thrown fetch (R45)", () => {
   });
 });
 
-describe("refresh loop step 7 — the PRD cache", () => {
-  it("writes a freshly built cache into meta", async () => {
-    stubAll({ graphql: { data: {} } });
-    const { publisher } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([]));
+describe("refresh loop step 7 — retired", () => {
+  it("never requests a Discord threads route", async () => {
+    // Step 7 used to list a PRD forum's threads on another server. The bot now
+    // runs on the public server only, so no tick may touch a threads route.
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", async (input: string) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("api.github.com/graphql")) return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      if (url.includes("/messages")) return new Response(JSON.stringify([]), { status: 200 });
+      return new Response("{}", { status: 200 });
+    });
+    const store = new MemoryStore(config, makePublisher().publisher, seeded([record(1)]));
 
     await runTick(deps(store));
 
-    const state = await store.readState();
-    expect(state.meta.prdCache?.options.map((o) => o.id)).toEqual(["200"]);
-    expect(state.meta.prdCache?.refreshedAt).toBe(T0);
-  });
-
-  it("leaves the previous cache untouched when the fetch fails", async () => {
-    stubAll({ graphql: { data: {} } });
-    const { publisher } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([]));
-    const previous = { options: [{ id: "9", name: "Old but usable" }], truncated: false, refreshedAt: T0 - 99_999 };
-    await store.apply([{ kind: "setMeta", patch: { prdCache: previous } }], { now: T0, rerender: false });
-
-    threadsFail = true;
-    await runTick(deps(store));
-
-    expect((await store.readState()).meta.prdCache).toEqual(previous);
-  });
-
-  it("counts both thread reads in the tick's subrequest total", async () => {
-    // Asserted as a DELTA between two runs rather than against a hand-counted
-    // absolute: the absolute moves whenever the scan reads a different number of
-    // pages, so a literal here would be a test that fails for unrelated reasons.
-    // Both runs read the threads — a failed fetch still costs two requests — so
-    // the delta isolates nothing but the counting.
-    stubAll({ graphql: { data: {} } });
-    const a = await runTick(deps(new MemoryStore(config, makePublisher().publisher, seeded([]))));
-
-    threadsFail = true;
-    const b = await runTick(deps(new MemoryStore(config, makePublisher().publisher, seeded([]))));
-
-    expect(a.subrequests).toBe(b.subrequests);
-    expect(a.subrequests).toBeGreaterThanOrEqual(4);
-  });
-
-  it("commits nothing in READ_ONLY mode but still reads the threads", async () => {
-    stubAll({ graphql: { data: {} } });
-    const { publisher } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([]));
-
-    await runTick(deps(store, { readOnly: true }));
-    expect((await store.readState()).meta.prdCache).toBeNull();
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.filter((u) => u.includes("/threads"))).toEqual([]);
   });
 });
 
@@ -921,9 +870,8 @@ describe("refresh loop step 8 — the allowance is a subrequest BUDGET, not a re
   it("sheds allowance when the subrequest count is already high, and the tick stays under the ceiling", async () => {
     stubAll({ graphql: { data: {} } });
     // 900 records -> ceil(900/25) = 36 GraphQL chunks. Before step 8: 1
-    // (beginTick) + 36 (GraphQL) + 1 (scan, no messages) + 2 (PRD threads) =
-    // 40 spent. allowance = min(10, 50 - 40 - 5) = 5, so 5 of the budget's 10
-    // is shed.
+    // (beginTick) + 36 (GraphQL) + 1 (scan, no messages) = 38 spent.
+    // allowance = min(10, 50 - 38 - 5) = 7, so 3 of the budget's 10 is shed.
     const store = memoryStoreWith(manyOpenRecords(900));
 
     const report = await runTick(deps(store, { rest: stubRestWithReactions({}) }));
@@ -935,9 +883,9 @@ describe("refresh loop step 8 — the allowance is a subrequest BUDGET, not a re
 
   it("skips step 8 entirely when the allowance is zero", async () => {
     stubAll({ graphql: { data: {} } });
-    // 1050 records -> ceil(1050/25) = 42 chunks -> 46 spent before step 8.
-    // allowance = min(10, 50 - 46 - 5) = min(10, -1) clamped to 0.
-    const store = memoryStoreWith(manyOpenRecords(1050));
+    // 1100 records -> ceil(1100/25) = 44 chunks -> 1 + 44 + 1 (scan) = 46 spent
+    // before step 8. allowance = min(10, 50 - 46 - 5) = min(10, -1) clamped to 0.
+    const store = memoryStoreWith(manyOpenRecords(1100));
 
     const report = await runTick(deps(store, { rest: stubRestWithReactions({}) }));
 
@@ -974,14 +922,14 @@ describe("refresh loop step 8 — the allowance is a subrequest BUDGET, not a re
   });
 
   it("does not start a two-subrequest read on the last single unit of allowance", async () => {
-    // 1000 records -> ceil(1000/25) = 40 GraphQL chunks -> 1 (beginTick) + 40 +
-    // 1 (scan) + 2 (PRD threads) = 44 spent, so allowance = min(10, 50 - 44 - 5)
+    // 1050 records -> ceil(1050/25) = 42 GraphQL chunks -> 1 (beginTick) + 42 +
+    // 1 (scan) = 44 spent, so allowance = min(10, 50 - 44 - 5)
     // = 1. Every record here is claimed by reaction with its holder absent, so
     // every read costs 2. `remaining <= 0` let one of them start anyway and
     // spend `allowance + 1` — one over the ceiling on a tick that also pays for
     // finishTick and two DMs, which is exactly what RESERVE is sized to prevent.
     stubAll({ graphql: { data: {} } });
-    const held = Array.from({ length: 1000 }, (_, i) => heldByReaction(i + 1, "u9", "Ira"));
+    const held = Array.from({ length: 1050 }, (_, i) => heldByReaction(i + 1, "u9", "Ira"));
     const store = memoryStoreWith(held);
 
     const report = await runTick(deps(store, { rest: stubRestWithReactions({}) }));

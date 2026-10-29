@@ -17,7 +17,6 @@ export interface UrgencyLevel {
 export interface Config {
   allowedChannelIds: string[];
   digestChannelId: string;
-  prdForumChannelId: string;
   repoAllowlist: string[];
   teams: TeamName[];
   urgencies: UrgencyLevel[];
@@ -78,7 +77,6 @@ const DAY = 24 * HOUR;
 export const config: Config = {
   allowedChannelIds: ["REPLACE_WITH_REVIEW_CHANNEL_ID"],
   digestChannelId: "REPLACE_WITH_REVIEW_CHANNEL_ID",
-  prdForumChannelId: "REPLACE_WITH_PRD_FORUM_ID",
   repoAllowlist: [
     "paranext/paranext-core",
     "paranext/paratext-10-studio",

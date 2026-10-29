@@ -80,10 +80,10 @@ async function editReply(
   }
 }
 
-/** Built from the cache and nothing else — see `buildRequestModal`. */
-export async function openRequestModal(deps: RequestDeps, prefill?: SubmittedValues): Promise<InteractionResponse> {
-  const state = await deps.store.readState();
-  return buildRequestModal(deps.config, state.meta.prdCache, prefill);
+/** Built from config alone — see `buildRequestModal`. Reads nothing: the modal
+ *  has a 3-second budget and needs nothing from the store. */
+export function openRequestModal(config: Config, prefill?: SubmittedValues): InteractionResponse {
+  return buildRequestModal(config, prefill);
 }
 
 export async function handleRetryButton(
@@ -111,7 +111,7 @@ export async function handleRetryButton(
     );
   }
 
-  return openRequestModal(deps, stashed.values);
+  return openRequestModal(deps.config, stashed.values);
 }
 
 /**
@@ -277,7 +277,6 @@ async function submit(interaction: SubmitInteraction, deps: RequestDeps): Promis
   const fields: RequestFields = {
     team: parse.values.team as RequestFields["team"],
     urgency: parse.values.urgency as RequestFields["urgency"],
-    prdThreadId: parse.values.prdThreadId,
     note: trimmedNote === "" ? null : trimmedNote.slice(0, NOTE_MAX_LENGTH),
     requesterId: who.id,
     requesterName: who.name,

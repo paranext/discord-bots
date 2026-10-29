@@ -149,7 +149,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -221,7 +221,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -298,7 +298,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -386,7 +386,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -500,7 +500,7 @@ describe("RecordsObject", () => {
         [{ kind: "upsertRequest",
            pr: { owner: "paranext", repo: "paranext-core", number },
            at: T0 - 3 * 86_400_000,
-           fields: { team: "Power", urgency: "soon", prdThreadId: null, note: null, requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: `m-${number}` },
+           fields: { team: "Power", urgency: "soon", note: null, requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: `m-${number}` },
            title, prAuthorLogin: "jolie", isDraft: false }],
         { now: T0 - 3 * 86_400_000, rerender: false },
       );
@@ -591,7 +591,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -698,7 +698,8 @@ describe("RecordsObject", () => {
     const migrated = migrateState(v2 as never);
 
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(migrated.meta.prdCache).toBeNull();
+    // 2 → 3 adds it and 4 → 5 reduces it to its tombstone.
+    expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     expect(migrated.meta.retryStash).toEqual({});
     // Everything version 2 already carried survives untouched.
     expect(migrated.meta.digestBodyVersion).toBe(4);
@@ -728,7 +729,7 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v3 as never);
 
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     const record = migrated.records["paranext/paranext-core#1"]!;
     // Every claim that existed before this deploy was necessarily made from the menu.
     expect(record.claimSource).toBe("menu");
@@ -752,10 +753,101 @@ describe("RecordsObject", () => {
     expect(migrateState(v3 as never).records["paranext/paranext-core#2"]!.claimSource).toBeNull();
   });
 
-  it("still walks unversioned state all the way to 4", () => {
+  it("migrates version 4 state to 5, removing every stored PRD value and nothing else", () => {
+    const withPrd = {
+      ...newScannedRecord({
+        pr: { owner: "paranext", repo: "paranext-core", number: 3 },
+        channelId: "c",
+        messageId: "m",
+        messageTimestamp: 1_756_000_000_000,
+        title: "PT-3",
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      }),
+      team: "Power",
+      note: "keep me",
+      prdThreadId: "1075535230087221248",
+    };
+    const stashed = {
+      userId: "u1",
+      values: { url: "https://x", team: "Power", urgency: "soon", prdThreadId: "1075535230087221248", note: "n" },
+      expiresAt: 1_756_000_000_000,
+    };
+    const v4 = {
+      schemaVersion: 4,
+      records: { "paranext/paranext-core#3": withPrd },
+      meta: {
+        ...emptyState().meta,
+        digestBodyVersion: 7,
+        prdCache: { options: [{ id: "1", name: "Old" }], truncated: false, refreshedAt: 1 },
+        retryStash: { "i-1": stashed },
+      },
+    };
+
+    const migrated = migrateState(v4 as never);
+
+    expect(migrated.schemaVersion).toBe(5);
+    // A tombstone, not deleted: an old-build process mid-deploy crashes on an
+    // absent cache but offers only "None" for a null one.
+    expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
+    const record = migrated.records["paranext/paranext-core#3"]!;
+    expect("prdThreadId" in record).toBe(false);
+    expect(record.team).toBe("Power");
+    expect(record.note).toBe("keep me");
+    expect(migrated.meta.retryStash["i-1"]).toEqual({
+      userId: "u1",
+      values: { url: "https://x", team: "Power", urgency: "soon", note: "n" },
+      expiresAt: 1_756_000_000_000,
+    });
+    expect(migrated.meta.digestBodyVersion).toBe(7);
+  });
+
+  it("strips PRD values an old-build tick wrote back into version 5 state, on every load", () => {
+    const record = {
+      ...newScannedRecord({
+        pr: { owner: "paranext", repo: "paranext-core", number: 4 },
+        channelId: "c",
+        messageId: "m",
+        messageTimestamp: 1_756_000_000_000,
+        title: "PT-4",
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      }),
+      prdThreadId: "1075535230087221248",
+    };
+    const v5 = {
+      schemaVersion: 5,
+      records: { "paranext/paranext-core#4": record },
+      meta: {
+        ...emptyState().meta,
+        prdCache: { options: [{ id: "1", name: "Old" }], truncated: false, refreshedAt: 1 },
+        retryStash: {
+          "i-1": {
+            userId: "u1",
+            values: { url: "https://x", team: "Power", urgency: "soon", prdThreadId: "1", note: "n" },
+            expiresAt: 1_756_000_000_000,
+          },
+        },
+      },
+    };
+
+    const migrated = migrateState(v5 as never);
+
+    expect(migrated.schemaVersion).toBe(5);
+    expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
+    expect("prdThreadId" in migrated.records["paranext/paranext-core#4"]!).toBe(false);
+    expect(migrated.meta.retryStash["i-1"]!.values).toEqual({ url: "https://x", team: "Power", urgency: "soon", note: "n" });
+  });
+
+  it("leaves prdCache absent on version 5 state that never had it", () => {
+    expect("prdCache" in migrateState(emptyState() as never).meta).toBe(false);
+  });
+
+  it("still walks unversioned state all the way to the current version", () => {
     const v0 = { records: {}, meta: { ...emptyState().meta, digestBodyVersion: undefined } };
     const migrated = migrateState(v0 as never);
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     expect(migrated.meta.digestBodyVersion).toBe(0);
     expect(migrated.meta.retryStash).toEqual({});
   });

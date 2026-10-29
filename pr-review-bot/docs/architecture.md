@@ -15,13 +15,13 @@ nothing else:
   interaction. Verifies Discord's Ed25519 signature (`src/discord/verify.ts`)
   against the app's public key before doing anything else with the body, then
   routes on interaction type: `ApplicationCommand` for `/review-list` and
-  `/review-request` (the latter opens the modal, built entirely from the
-  cached `Meta.prdCache` — never a live fetch), `ModalSubmit` for the
-  submitted `/review-request` form (deferred with callback type 5, then
-  finished in `waitUntil`), and `MessageComponent` for the `Claim a PR ▾` and
-  `Resolve ▾` select menus plus the **Fix and retry** button a rejected
-  submission carries (routed by its `custom_id` prefix, ahead of the select
-  menus, since a button carries no `values`). Also handles Discord's PING
+  `/review-request` (the latter opens the modal, built from config alone — no
+  fetch and no store read), `ModalSubmit` for the submitted `/review-request`
+  form (deferred with callback type 5, then finished in `waitUntil`), and
+  `MessageComponent` for the `Claim a PR ▾` and `Resolve ▾` select menus plus
+  the **Fix and retry** button a rejected submission carries (routed by its
+  `custom_id` prefix, ahead of the select menus, since a button carries no
+  `values`). Also handles Discord's PING
   (interaction type 1) so the endpoint URL can be registered in the
   Developer Portal. `/review-request`, its modal submit, and its retry button
   are all further gated on `interaction.channel_id` being in
@@ -210,22 +210,10 @@ not grow with the list.
    immediately, before the daily post is attempted, so a rejected daily post
    cannot lose the id and cause the next tick to post a second digest.
 
-Independent of that flow, refresh-loop step 7 keeps the `/review-request`
-modal's PRD dropdown current: it fetches `GET /guilds/{id}/threads/active`
-(guild-wide — there is no channel-scoped equivalent, so `src/core/prd.ts`'s
-`buildPrdCache` filters that result by `parent_id`) plus one page of
-`/channels/{id}/threads/archived/public` for the PRD forum channel. The
-archived route is already scoped to the forum channel by its URL, so its
-result is **not** filtered by `parent_id` again — doing so would silently
-drop every archived thread if that route's objects ever omitted the field,
-which is the one failure mode this cache cannot afford (forum posts
-auto-archive; archived threads are most of the list). The merged result is
-written to `Meta.prdCache`. A failed fetch emits no command at all — the
-previous cache is left in place and the tick logs `[PRD_CACHE_SKIPPED]`
-(naming every endpoint that failed) plus an `[PRD_CACHE]` line with the raw
-active/archived thread counts every tick — because a stale dropdown is a
-working dropdown and an empty one is the outage this cache exists to
-prevent.
+Refresh-loop step 7 is retired. It used to refresh a cached list of PRD forum
+threads for the `/review-request` modal, but that forum lived on a server the
+bot no longer reaches, so the PRD field was removed (schema version 5). The
+later steps keep their numbers so log tags and references stay stable.
 
 Step 8 reads `:code_review:` reactions for eligible records — open, with a
 `messageId` no other record shares, and either unclaimed or claimed by a

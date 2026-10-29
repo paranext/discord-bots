@@ -143,6 +143,8 @@ function deps(store: Store, now = NOW): RequestDeps {
 }
 
 function submission(over: Record<string, string> = {}) {
+  // `prd` is deliberately still sent: a modal opened before the PRD field was
+  // removed submits it, and every test here proves it is ignored.
   const v = { url: URL_OK, team: "Power", urgency: "soon", prd: "none", note: "", ...over };
   return {
     id: "i-1",
@@ -160,21 +162,13 @@ function submission(over: Record<string, string> = {}) {
 }
 
 describe("openRequestModal", () => {
-  it("answers with a modal from the cache without fetching anything", async () => {
-    const store = new MemoryStore(config, publisher());
-    await store.apply(
-      [{ kind: "setMeta", patch: { prdCache: { options: [{ id: "t-1", name: "Trust" }], truncated: false, refreshedAt: NOW } } }],
-      { now: NOW, rerender: false },
-    );
-    const response = await openRequestModal(deps(store));
+  // It takes only `config`, so it cannot read the store; this pins that it
+  // does not fetch either.
+  it("answers with a modal without fetching", () => {
+    const response = openRequestModal(config);
 
     expect(response.type).toBe(9);
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("still opens on a cold cache", async () => {
-    const response = await openRequestModal(deps(new MemoryStore(config, publisher())));
-    expect(response.type).toBe(9);
   });
 });
 

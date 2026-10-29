@@ -2,7 +2,6 @@ import type { Config } from "../../config/config.js";
 import type { PrSnapshot } from "../core/exit.js";
 import type { NewScannedInput, PrRecord, RequestFields } from "../core/record.js";
 import type { ParsedPr } from "../core/urls.js";
-import type { PrdCache } from "../core/prd.js";
 import type { SubmittedValues } from "../core/submit.js";
 import type { Reactor } from "../core/reactions.js";
 
@@ -53,10 +52,6 @@ export interface Meta {
   scanBackfill: Record<string, string>;
   /** Requires an atomic take, which is why it lives here and not in KV. */
   syncLease: { heldSince: number } | null;
-  /** The PRD dropdown's source, refreshed by step 7. Null before the first
-   *  successful refresh — the modal then offers only "None" and says so, rather
-   *  than refusing to open. */
-  prdCache: PrdCache | null;
   /** interactionId -> a rejected submission's values, for the "Fix and retry"
    *  button. Pruned and capped on WRITE (see the `stashSubmission` command),
    *  never by a tick: `purgeResolved` filters `records` and never reads `meta`,
@@ -103,8 +98,12 @@ export interface StoreState {
  *  pre-deploy baseline; version 2 added `Meta.digestBodyVersion`; version 3
  *  added `Meta.prdCache` and `Meta.retryStash`; version 4 added the three
  *  reaction fields to every RECORD — the first migration to touch `records`
- *  rather than `meta`. */
-export const CURRENT_SCHEMA_VERSION = 4;
+ *  rather than `meta`; version 5 removed `PrRecord.prdThreadId` and the
+ *  `prdThreadId` in every `Meta.retryStash[*].values`, and reduced
+ *  `Meta.prdCache` to a `null` tombstone (not in `Meta`; kept only for
+ *  old-build processes mid-deploy), when the bot moved to the public server
+ *  only. */
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export type Command =
   | { kind: "upsertScanned"; input: NewScannedInput; now: number }

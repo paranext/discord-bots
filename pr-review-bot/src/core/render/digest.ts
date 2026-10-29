@@ -75,9 +75,7 @@ function renderOpenRow(r: PrRecord, config: Config): string {
     .join(" · ");
   lines.push(head);
 
-  const sub = [`${r.repo}#${r.number}`];
-  if (r.prdThreadId !== null) sub.push(`<#${r.prdThreadId}>`);
-  sub.push(...markers(r));
+  const sub = [`${r.repo}#${r.number}`, ...markers(r)];
   lines.push(`     ${sub.join(" · ")}`);
 
   // The blocking reason renders inline. This is the only place it is visible to

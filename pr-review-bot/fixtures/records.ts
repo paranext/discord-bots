@@ -33,7 +33,6 @@ interface MakeInput {
   urgency?: UrgencyKey | null;
   ageMs: number;
   note?: string | null;
-  prdThreadId?: string | null;
   isDraft?: boolean;
   claimedByName?: string | null;
   lastClaimedByName?: string | null;
@@ -56,7 +55,6 @@ export function make(input: MakeInput): PrRecord {
     team: input.team ?? null,
     urgency: input.urgency ?? null,
     note: input.note ?? null,
-    prdThreadId: input.prdThreadId ?? null,
     source: input.source ?? (input.team === null || input.team === undefined ? "scanned" : "command"),
     requesterId: "u-jolie",
     requesterName: "Jolie",
@@ -70,11 +68,7 @@ export function make(input: MakeInput): PrRecord {
 }
 
 const ordinaryDay: PrRecord[] = [
-  // "t-trust" is a placeholder thread id, not a real Discord snowflake — it renders
-  // as the literal channel-mention token <#t-trust> in the digest text. That's the
-  // fixture being deliberately unresolvable, not a renderer bug: renderOpenRow just
-  // wraps whatever prdThreadId it's given in `<#...>` and trusts Discord to resolve it.
-  make({ repo: "paratext-10-studio", number: 177, title: "PT-4398 P10 backend sync-activity signal", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo", prdThreadId: "t-trust" }),
+  make({ repo: "paratext-10-studio", number: 177, title: "PT-4398 P10 backend sync-activity signal", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo" }),
   make({ repo: "paranext-core", number: 2701, title: "PT-4401 Sync activity indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
   make({ repo: "paranext-core", number: 2695, title: "PT-4363 Internet Settings UI Enhancements", team: "Simple", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
   make({ repo: "paranext-core", number: 3408, title: "PT-3408 Collapse extra spaces in Find queries", team: "Power", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),

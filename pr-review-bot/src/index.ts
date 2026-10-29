@@ -132,7 +132,6 @@ export default {
       credentials: credentialsFor(env),
       config,
       botUserId: env.DISCORD_BOT_USER_ID,
-      guildId: env.DISCORD_GUILD_ID,
       now: Date.now(),
       readOnly: isReadOnly(env.READ_ONLY),
     });

@@ -160,10 +160,10 @@ describe("renderDigest — row content", () => {
     expect(body).toContain("previously claimed");
   });
 
-  it("renders the PRD as a thread mention that follows renames", () => {
-    const body = renderDigest({ records: [rec(1, { team: "Power", urgency: "soon", prdThreadId: "t-9" })], ...FRESH })
+  it("renders no channel mention in a row", () => {
+    const body = renderDigest({ records: [rec(1, { team: "Power", urgency: "soon" })], ...FRESH })
       .embeds.map((e) => e.description).join("\n");
-    expect(body).toContain("<#t-9>");
+    expect(body).not.toContain("<#");
   });
 });
 
@@ -610,7 +610,7 @@ describe("renderDigest — capacity", () => {
   it("matches a stored snapshot", () => {
     const result = renderDigest({
       records: [
-        rec(177, { team: "Power", urgency: "blocking", note: "needs a P10 build before Thursday's demo", prdThreadId: "t-1" }),
+        rec(177, { team: "Power", urgency: "blocking", note: "needs a P10 build before Thursday's demo" }),
         rec(2701, { team: "Power", urgency: "soon" }),
         rec(2695, { team: "Simple", urgency: "thisWeek", isDraft: true }),
         rec(3408, { claimedBy: "u1", claimedByName: "Katherine", claimedAt: NOW - 2 * HOUR, team: "Power", urgency: "blocking" }),

@@ -28,7 +28,6 @@ export function emptyState(): StoreState {
       scanCursors: {},
       scanBackfill: {},
       syncLease: null,
-      prdCache: null,
       retryStash: {},
     },
   };

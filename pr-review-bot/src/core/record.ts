@@ -22,7 +22,6 @@ export interface PrRecord {
 
   team: TeamName | null;
   urgency: UrgencyKey | null;
-  prdThreadId: string | null;
   note: string | null;
 
   requesterId: string | null;
@@ -83,7 +82,6 @@ export interface PrRecord {
 export interface RequestFields {
   team: TeamName;
   urgency: UrgencyKey;
-  prdThreadId: string | null;
   note: string | null;
   requesterId: string;
   requesterName: string;
@@ -172,7 +170,6 @@ export function newScannedRecord(input: NewScannedInput): PrRecord {
     messageId: input.messageId,
     team: null,
     urgency: null,
-    prdThreadId: null,
     note: null,
     requesterId: null,
     requesterName: null,

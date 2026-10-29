@@ -1,30 +1,43 @@
 import type { PrRecord } from "../core/record.js";
-import { CURRENT_SCHEMA_VERSION, type Meta, type StoreState } from "./types.js";
+import { CURRENT_SCHEMA_VERSION, type Meta, type StashedSubmission, type StoreState } from "./types.js";
 
 /**
  * `Meta` as some *earlier* deploy could have written it: every field the current
- * shape has changed, widened to also admit the older form. Today that is exactly
- * `digestBodyVersion`, added in version 2, so version-1 state does not have it.
+ * shape has changed, widened to also admit the older form. `digestBodyVersion`
+ * was added in version 2, so version-1 state does not have it; `prdCache` was
+ * added in version 3 and retired in version 5, which keeps it only as a `null`
+ * tombstone (see the 4 → 5 step). Stashed values before version 5 carry
+ * `prdThreadId`.
  *
  * Widening rather than versioning per field is deliberate and has a known limit:
  * a field the current shape has *removed* has to be re-added here as optional,
  * and a renamed one appears under both names. That is fine while the list is
  * short; when it stops being short, this type is the thing to split per version.
  */
-type StoredMeta = Omit<Meta, "digestBodyVersion" | "prdCache" | "retryStash"> & {
+type StoredMeta = Omit<Meta, "digestBodyVersion" | "retryStash"> & {
   digestBodyVersion?: number;
-  prdCache?: Meta["prdCache"];
-  retryStash?: Meta["retryStash"];
+  /** `unknown` because its type was deleted with it, and nothing reads its
+   *  contents: 2 → 3 writes `null`, and from 5 on it is only ever `null`. */
+  prdCache?: unknown;
+  retryStash?: Record<string, StoredStashedSubmission>;
+};
+
+/** A `StashedSubmission` as some earlier deploy could have written it: before
+ *  version 5 its `values` carried `prdThreadId`. */
+type StoredStashedSubmission = Omit<StashedSubmission, "values"> & {
+  values: StashedSubmission["values"] & { prdThreadId?: string | null };
 };
 
 /**
  * A `PrRecord` as some earlier deploy could have written it. Version 4 added
- * three fields, so version-3 records lack them.
+ * three fields, so version-3 records lack them; version 5 removed
+ * `prdThreadId`, so records before it carry it.
  */
 type StoredRecord = Omit<PrRecord, "claimSource" | "reactionCheckedAt" | "lastReactors"> & {
   claimSource?: PrRecord["claimSource"];
   reactionCheckedAt?: number | null;
   lastReactors?: string[] | null;
+  prdThreadId?: string | null;
 };
 
 /**
@@ -130,9 +143,9 @@ export function migrateState(stored: StoredState): StoreState {
 
   // 2 → 3: `Meta.prdCache` and `Meta.retryStash` appeared. Both default to
   // "nothing cached, nothing stashed", which is exactly the state a fresh
-  // deploy is in and which every reader already handles: the modal offers only
-  // "None" until step 7 first succeeds, and an absent stash key is the same as
-  // an expired one.
+  // deploy was in. Historical, as of version 3: the readers then were the
+  // modal, which offered only "None" until the since-retired step 7 first
+  // succeeded, and the stash, where an absent key is the same as an expired one.
   if (state.schemaVersion === 2) {
     state = {
       ...state,
@@ -163,7 +176,47 @@ export function migrateState(stored: StoredState): StoreState {
     state = { ...state, schemaVersion: 4, records };
   }
 
+  // 4 → 5: the PRD field was removed when the bot moved to the public server
+  // only (the PRD forum lived on a server it no longer reaches). Every record's
+  // and every stashed retry's `prdThreadId` is deleted. `prdCache` is NOT
+  // deleted but set to `null`: while a deploy rolls out, Worker processes on the
+  // old build still serve interactions against this state, and the old modal
+  // builder treats `null` as "cold cache, offer only None" but crashes on
+  // `undefined`. The tombstone costs a few bytes and keeps that window safe.
+  if (state.schemaVersion === 4) {
+    state = { ...stripRetiredPrd(state), schemaVersion: 5 };
+  }
+
+  // Every version, every load: the same strip again. An old-build tick that was
+  // already running when the deploy landed can still commit through the new
+  // Durable Object, writing a full `prdCache` back with `setMeta` or a
+  // `prdThreadId` onto a record with `markRequested` — into state already
+  // stamped 5, which the step above never revisits. Re-running the strip here
+  // means anything such a write leaves behind is gone on the next load.
+  state = stripRetiredPrd(state);
+
   // Sound because the last step above produces CURRENT_SCHEMA_VERSION, and
   // anything higher was refused before the chain ran.
   return state as StoreState;
+}
+
+/**
+ * Removes every stored PRD value: `prdThreadId` from each record and each
+ * stashed retry's values, and `prdCache` collapsed to its `null` tombstone when
+ * present (left absent when absent — state created at version 5 never had it).
+ */
+function stripRetiredPrd(state: MigratingState): MigratingState {
+  const records: Record<string, StoredRecord> = {};
+  for (const [id, record] of Object.entries(state.records)) {
+    const { prdThreadId: _prd, ...rest } = record;
+    records[id] = rest;
+  }
+  const retryStash: Record<string, StoredStashedSubmission> = {};
+  for (const [key, entry] of Object.entries(state.meta.retryStash ?? {})) {
+    const { prdThreadId: _prd, ...values } = entry.values;
+    retryStash[key] = { ...entry, values };
+  }
+  const meta: StoredMeta = { ...state.meta, retryStash };
+  if ("prdCache" in meta) meta.prdCache = null;
+  return { ...state, records, meta };
 }

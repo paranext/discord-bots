@@ -5,7 +5,6 @@ import { config } from "../config/config.js";
 import { FIXTURE_NOW, SCENARIOS } from "../fixtures/records.js";
 import { renderDigest } from "../src/core/render/digest.js";
 import { buildRequestModal } from "../src/handlers/modal.js";
-import type { PrdCache } from "../src/core/prd.js";
 import { renderRejection } from "../src/core/render/rejection.js";
 import type { SubmitRejection, SubmittedValues } from "../src/core/submit.js";
 import { buildHtml, type ModalSpecimen, type RejectionSpecimen, type RenderedScenario } from "./template.js";
@@ -31,60 +30,27 @@ const rendered: RenderedScenario[] = SCENARIOS.map((scenario) => {
   };
 });
 
-// The four cache states the modal is actually built from: a full but not
-// truncated cache, one over the 24-option cap, a cold/never-refreshed cache,
-// and a full cache combined with a "Fix and retry" prefill.
-const FULL_CACHE: PrdCache = {
-  options: [
-    { id: "1075535230087221248", name: "PT-4398 P10 backend sync-activity signal" },
-    { id: "1075535230087221249", name: "PT-4401 Sync activity indicator" },
-    { id: "1075535230087221250", name: "PT-4363 Internet Settings UI Enhancements" },
-  ],
-  truncated: false,
-  refreshedAt: FIXTURE_NOW,
-};
-
-const TRUNCATED_CACHE: PrdCache = {
-  options: Array.from({ length: 24 }, (_, i) => ({
-    id: `10755352300872${22000 + i}`,
-    name: `PT-${4400 + i} PRD thread number ${i + 1}`,
-  })),
-  truncated: true,
-  refreshedAt: FIXTURE_NOW,
-};
-
+// The two states the modal is built in: a fresh request, and a "Fix and retry"
+// prefill.
 const PREFILL: SubmittedValues = {
   url: "https://github.com/paranext/paranext-core/pull/2701",
   team: "Power",
   urgency: "blocking",
-  prdThreadId: "1075535230087221248",
   note: "needs a P10 build before Thursday's demo",
 };
 
 const modals: ModalSpecimen[] = [
   {
-    key: "modal-full",
-    label: "Modal — full cache",
-    description: "A normal refresh: some PRDs, well under the 24-option cap, nothing prefilled.",
-    response: buildRequestModal(config, FULL_CACHE),
-  },
-  {
-    key: "modal-truncated",
-    label: "Modal — truncated cache",
-    description: "More than 24 active PRD threads: the PRD select carries the note that says so.",
-    response: buildRequestModal(config, TRUNCATED_CACHE),
-  },
-  {
-    key: "modal-cold",
-    label: "Modal — cold cache (null)",
-    description: "The cron has never run, or every refresh has failed: PRD select falls back to None alone.",
-    response: buildRequestModal(config, null),
+    key: "modal-fresh",
+    label: "Modal — fresh",
+    description: "A new request: nothing prefilled.",
+    response: buildRequestModal(config),
   },
   {
     key: "modal-prefill",
     label: "Modal — prefilled retry",
     description: "\"Fix and retry\": every field carries back exactly what the requester typed, unmodified.",
-    response: buildRequestModal(config, FULL_CACHE, PREFILL),
+    response: buildRequestModal(config, PREFILL),
   },
 ];
 
@@ -95,7 +61,6 @@ const REJECTION_VALUES: SubmittedValues = {
   url: "https://github.com/paranext/paranext-core/pull/9999",
   team: "Power",
   urgency: "blocking",
-  prdThreadId: "1075535230087221248",
   note: "needs a P10 build before Thursday's demo",
 };
 

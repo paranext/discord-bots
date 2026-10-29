@@ -8,33 +8,10 @@ Deployment target throughout is Cloudflare Workers (`wrangler deploy`). The
 refresh tick runs on a cron trigger every 5 minutes (`wrangler.jsonc`'s
 `triggers.crons`).
 
-## Rollout stage 1: record the PRD thread fixtures
-
-Before the first real deploy, on a scratch Discord server with a bot token
-and a forum channel standing in for the PRD forum, run:
-
-```bash
-curl -s -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
-  "https://discord.com/api/v10/guilds/$DISCORD_GUILD_ID/threads/active" \
-  > fixtures/responses/threads-active.json
-
-curl -s -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
-  "https://discord.com/api/v10/channels/$PRD_FORUM_ID/threads/archived/public?limit=25" \
-  > fixtures/responses/threads-archived-public.json
-```
-
-The second route must be run against a real **forum** channel — Discord's
-own docs only describe `.../threads/archived/public` under text-channel
-parents, so a text channel's response would not prove anything about forum
-behavior, which is what `src/handlers/scheduled.ts`'s PRD cache refresh
-actually depends on. Scrub each recorded file down to `id`, `name`,
-`parent_id`, `last_message_id` per thread — no other fields — before
-committing, and keep at least one active thread whose `parent_id` is not the
-PRD forum's, since one of the guarded tests asserts that's still true of a
-real response. These two fixtures cannot be hand-written; `tests/core/fixtures.test.ts`
-explains why in a comment beside the same two commands, and its `describe`
-block for them stays `skipIf`-skipped until the files exist. Once committed,
-that guarded test activates on its own — no code change needed.
+The bot is installed on **one Discord server: the public one**. Every id in
+this runbook — `DISCORD_GUILD_ID`, the review and digest channel ids, and the
+`:code_review:` claim emoji — comes from that server. Nothing reads from any
+other server.
 
 ## 1. Create the Discord application
 
@@ -132,17 +109,12 @@ target server.
 ## 5. Apply channel permission overwrites
 
 Restrict the bot, via channel-level permission overwrites, to the review
-channel and the PRD forum (`teamwide-epic-discussions`). Grant only:
+channel. Grant only:
 
 - Send Messages
 - Embed Links
 - Read Message History
 - View Channel
-
-The bot also needs read access to the PRD forum channel
-(`prdForumChannelId`, step 9) — `View Channel` and `Read Message History`
-there — so refresh-loop step 7 can list its active and archived threads for
-the `/review-request` modal's PRD dropdown (see `docs/architecture.md`).
 
 **Do not grant** Manage Messages, and **do not grant** `PIN_MESSAGES`. The
 digest is pinned once by hand (step 13) and thereafter only edited; a bot
@@ -192,11 +164,10 @@ avoidable outage.
 
 ## 9. Fill in `config/config.ts` and open a PR
 
-Three placeholders need real values before this deploys against a real
+Two placeholders need real values before this deploys against a real
 server:
 
 - `allowedChannelIds` / `digestChannelId` — the real review channel ID
-- `prdForumChannelId` — the real PRD forum channel ID
 
 Config is checked into the repo specifically so this is a reviewable
 one-line PR rather than a manual step someone has to remember to redo on

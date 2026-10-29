@@ -13,7 +13,6 @@ export interface SubmittedValues {
   url: string;
   team: string;
   urgency: string;
-  prdThreadId: string | null;
   note: string;
 }
 
@@ -22,20 +21,14 @@ export interface SubmittedValues {
  *  the parser below (Task 7). */
 export const MODAL_ID = "request:modal";
 
-/** The modal's five field custom_ids — the vocabulary the builder writes and
+/** The modal's four field custom_ids — the vocabulary the builder writes and
  *  the parser reads, kept in one place so the two cannot drift apart. */
 export const FIELD_IDS = {
   url: "url",
   team: "team",
   urgency: "urgency",
-  prd: "prd",
   note: "note",
 } as const;
-
-/** The PRD select's "no PRD" option. A sentinel rather than an empty string, so
- *  "the user chose None" and "the select returned nothing" stay distinguishable
- *  in the submit parser. */
-export const PRD_NONE = "none";
 
 /** Discord's own text-input cap is 4000 characters; these are ours, tighter,
  *  and enforced twice: as `max_length` on the modal's own inputs (the modal is
@@ -45,20 +38,6 @@ export const PRD_NONE = "none";
  *  Durable Object value and the digest's per-row render budget. */
 export const URL_MAX_LENGTH = 200;
 export const NOTE_MAX_LENGTH = 500;
-
-/**
- * A Discord snowflake, which is what a PRD thread id is: digits, at most 20 of
- * them, forever.
- *
- * The other four fields are bounded — `url` and `note` by the caps above,
- * `team` and `urgency` by being checked against config — which left the PRD the
- * one field a client not honouring our own select could use to push an
- * arbitrary string into both the retry stash and the record. Shape, not
- * identity: a value is NOT checked against `Meta.prdCache`, because the cache
- * refreshes on the tick and a form opened before a refresh would then be
- * rejected for naming a thread that genuinely exists.
- */
-const SNOWFLAKE = /^\d{1,20}$/;
 
 /**
  * Every way a submission can be turned down, offline and online alike.
@@ -127,7 +106,6 @@ export function collectValues(components: unknown): Record<string, string> {
 
 export function parseSubmission(components: unknown, config: Config): SubmitParse {
   const raw = collectValues(components);
-  const prd = raw[FIELD_IDS.prd] ?? PRD_NONE;
   const rawUrl = raw[FIELD_IDS.url] ?? "";
 
   // Unnormalised APART FROM the two length caps: this is what the retry prefill
@@ -140,12 +118,6 @@ export function parseSubmission(components: unknown, config: Config): SubmitPars
     url: rawUrl.slice(0, URL_MAX_LENGTH),
     team: raw[FIELD_IDS.team] ?? "",
     urgency: raw[FIELD_IDS.urgency] ?? "",
-    // The None sentinel, an empty select, and anything that is not a snowflake
-    // all mean the same thing here: no PRD. Nothing real is lost by dropping a
-    // malformed id rather than rejecting the submission over it — the PRD is
-    // optional, it renders as a channel link, and a value that is not a
-    // snowflake could only ever render as a broken one.
-    prdThreadId: prd !== PRD_NONE && SNOWFLAKE.test(prd) ? prd : null,
     note: (raw[FIELD_IDS.note] ?? "").slice(0, NOTE_MAX_LENGTH),
   };
 

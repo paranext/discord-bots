@@ -320,7 +320,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'never-synced' 1`] 
 
 exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
 {
-  "bodyHash": "ba4f80cd",
+  "bodyHash": "6cd05bac",
   "components": [
     {
       "components": [
@@ -404,7 +404,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
       "description": "**Needs review** · 5 open · updated <t:1788192000:R>
 __Power__
 🔥 Blocking · [PT-4398 P10 backend sync-activity signal](https://github.com/paranext/paratext-10-studio/pull/177) · <t:1787932800:R>
-     paratext-10-studio#177 · <#t-trust>
+     paratext-10-studio#177
      _needs a P10 build before Thursday's demo_
 Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
      paranext-core#2701

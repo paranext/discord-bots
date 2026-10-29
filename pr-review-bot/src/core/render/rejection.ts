@@ -90,7 +90,6 @@ export function renderRejection(input: {
   const echo = [
     `> **Link:** ${clamp(values.url, FIELD_ECHO_LIMIT)}`,
     `> **Team:** ${clamp(values.team, FIELD_ECHO_LIMIT)} · **Urgency:** ${clamp(values.urgency, FIELD_ECHO_LIMIT)}`,
-    ...(values.prdThreadId === null ? [] : [`> **PRD:** <#${clamp(values.prdThreadId, 40)}>`]),
     ...(values.note.trim() === "" ? [] : [`> **Note:** ${clamp(values.note, FIELD_ECHO_LIMIT)}`]),
   ].join("\n");
 
