@@ -8,11 +8,11 @@ const T0 = 1_756_000_000_000;
 
 function rec(overrides: Partial<PrRecord> = {}): PrRecord {
   const base = testRecord({
-    pr: { owner: "paranext", repo: "paratext-10-studio", number: 177 },
+    pr: { owner: "paranext", repo: "example-extension", number: 177 },
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4398 P10 backend sync-activity signal",
+    title: "PT-9001 P10 backend progress events",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -31,12 +31,12 @@ describe("renderRequestMessage", () => {
   it("keeps the bare url alone on its own line so GitHub's unfurl renders", () => {
     const lines = renderRequestMessage(rec(), baseConfig).split("\n");
     const urlLine = lines.find((l) => l.includes("github.com"));
-    expect(urlLine).toBe("https://github.com/paranext/paratext-10-studio/pull/177");
+    expect(urlLine).toBe("https://github.com/paranext/example-extension/pull/177");
   });
 
   it("leads with urgency as emoji plus words, then team, then title", () => {
     expect(renderRequestMessage(rec(), baseConfig).split("\n")[0]).toBe(
-      "🔥 **Blocking** · power · PT-4398 P10 backend sync-activity signal",
+      "🔥 **Blocking** · power · PT-9001 P10 backend progress events",
     );
   });
 
@@ -87,12 +87,12 @@ describe("renderRequestMessage", () => {
 
   it("omits the urgency segment entirely when the record has no urgency", () => {
     const body = renderRequestMessage(rec({ urgency: null }), baseConfig);
-    expect(body.split("\n")[0]).toBe("power · PT-4398 P10 backend sync-activity signal");
+    expect(body.split("\n")[0]).toBe("power · PT-9001 P10 backend progress events");
   });
 
   it("omits the team segment entirely when the record has no team", () => {
     const body = renderRequestMessage(rec({ team: null }), baseConfig);
-    expect(body.split("\n")[0]).toBe("🔥 **Blocking** · PT-4398 P10 backend sync-activity signal");
+    expect(body.split("\n")[0]).toBe("🔥 **Blocking** · PT-9001 P10 backend progress events");
   });
 
   it("omits the attribution line entirely when the requester is unknown", () => {
@@ -132,7 +132,7 @@ describe("renderRequestMessage — a level with no emoji", () => {
 
   it("leads with the bare label, with no leading space before it", () => {
     expect(renderRequestMessage(rec({ urgency: "soon" }), noEmoji).split("\n")[0]).toBe(
-      "**Soon** · power · PT-4398 P10 backend sync-activity signal",
+      "**Soon** · power · PT-9001 P10 backend progress events",
     );
   });
 });

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { config as defaultConfig } from "../../config/config.js";
+import { loadConfig } from "../../config/config.js";
 import { DiscordRest, makeDigestPublisher } from "../discord/rest.js";
 import { applyCommands, emptyState } from "./apply.js";
 import { commitTick, digestHashWriteBack, renderAndPatch, tickWriteBack } from "./memory.js";
@@ -23,6 +23,10 @@ const STATE_KEY = "state";
 export interface RecordsObjectEnv {
   DISCORD_BOT_TOKEN: string;
   DISCORD_GUILD_ID: string;
+  /** Optional: unset at runtime until the secret exists. Read only through
+   *  `loadConfig`. */
+  REVIEW_CHANNEL_IDS?: string;
+  DIGEST_CHANNEL_ID?: string;
 }
 
 /**
@@ -32,7 +36,24 @@ export interface RecordsObjectEnv {
  * tick" invariant regardless of record count.
  */
 export class RecordsObject extends DurableObject<RecordsObjectEnv> implements Store {
-  private config: Config = defaultConfig;
+  private loadedConfig: Config | null = null;
+
+  /**
+   * Read from this instance's own env, not handed over by the Worker: the
+   * channel IDs are Worker secrets, and a DO sees the same bindings. Lazy
+   * rather than built in the constructor, so a bad secret fails only the calls
+   * that need channels: `readState`, which `/health` and `/stats` use, never
+   * reads it, and those routes stay up to diagnose the bad secret. Memoized
+   * because `env` cannot change under a live instance.
+   *
+   * Callers read it before entering `blockConcurrencyWhile`, never inside: a
+   * `ConfigError` thrown inside that callback resets the whole object rather
+   * than failing the one call.
+   */
+  private get config(): Config {
+    this.loadedConfig ??= loadConfig(this.env);
+    return this.loadedConfig;
+  }
 
   /**
    * A lazily-built module-level default, not per-instance mutable state that
@@ -81,25 +102,27 @@ export class RecordsObject extends DurableObject<RecordsObjectEnv> implements St
   }
 
   async beginTick(now: number): Promise<BeginTickResult> {
+    const config = this.config;
     return this.ctx.blockConcurrencyWhile(async () => {
       const state = await this.load();
       const lease = state.meta.syncLease;
       if (lease !== null && now - lease.heldSince < LEASE_TIMEOUT_MS) {
         return { acquired: false as const, reason: "lease-held" as const, heldSince: lease.heldSince };
       }
-      const taken = applyCommands(state, [{ kind: "setMeta", patch: { syncLease: { heldSince: now } } }], this.config).state;
+      const taken = applyCommands(state, [{ kind: "setMeta", patch: { syncLease: { heldSince: now } } }], config).state;
       await this.save(taken);
       return { acquired: true as const, state: taken };
     });
   }
 
   async finishTick(input: FinishTickInput): Promise<FinishTickResult> {
+    const config = this.config;
     // Commit this tick's own mutations first, and durably, before any Discord
     // I/O — this is its own short blockConcurrencyWhile, not the long one
     // below that would serialise interactive handlers behind a network call.
     const appliedCommands = await this.ctx.blockConcurrencyWhile(async () => {
       const state = await this.load();
-      const next = applyCommands(state, input.commands, this.config);
+      const next = applyCommands(state, input.commands, config);
       await this.save(next.state);
       return next;
     });
@@ -112,10 +135,10 @@ export class RecordsObject extends DurableObject<RecordsObjectEnv> implements St
     // blockConcurrencyWhile: this instance can be evicted between requests, so
     // an id held only in memory (or only in the returned patch) is an id a
     // rejected daily post loses — and the next tick then posts a second digest.
-    const outcome = await commitTick(appliedCommands.state, input.now, this.config, this.publisher(), (patch) =>
+    const outcome = await commitTick(appliedCommands.state, input.now, config, this.publisher(), (patch) =>
       this.ctx.blockConcurrencyWhile(async () => {
         const fresh = await this.load();
-        await this.save(applyCommands(fresh, [{ kind: "setMeta", patch }], this.config).state);
+        await this.save(applyCommands(fresh, [{ kind: "setMeta", patch }], config).state);
       }),
     );
 
@@ -137,16 +160,17 @@ export class RecordsObject extends DurableObject<RecordsObjectEnv> implements St
       }
       // The fenced release rides along in the same apply, after the patch, so
       // finishTick still costs the caller exactly one store subrequest.
-      await this.save(applyCommands(fresh, tickWriteBack(patch, input.leaseHeldSince), this.config).state);
+      await this.save(applyCommands(fresh, tickWriteBack(patch, input.leaseHeldSince), config).state);
     });
 
     return { results: appliedCommands.results, digest: outcome.digest, dailyPosted: outcome.dailyPosted };
   }
 
   async apply(commands: Command[], opts: { now: number; rerender: boolean }): Promise<ApplyResult> {
+    const config = this.config;
     const applied = await this.ctx.blockConcurrencyWhile(async () => {
       const state = await this.load();
-      const next = applyCommands(state, commands, this.config);
+      const next = applyCommands(state, commands, config);
       await this.save(next.state);
       return next;
     });
@@ -154,12 +178,12 @@ export class RecordsObject extends DurableObject<RecordsObjectEnv> implements St
     if (!opts.rerender) return { results: applied.results, digest: null };
 
     const state = await this.load();
-    const { digest, newHash, expectedVersion } = await renderAndPatch(state, opts.now, this.config, this.publisher());
+    const { digest, newHash, expectedVersion } = await renderAndPatch(state, opts.now, config, this.publisher());
     if (newHash !== null) {
       await this.ctx.blockConcurrencyWhile(async () => {
         const fresh = await this.load();
         const patch = digestHashWriteBack(fresh.meta.digestBodyVersion, expectedVersion, newHash);
-        await this.save(applyCommands(fresh, [{ kind: "setMeta", patch }], this.config).state);
+        await this.save(applyCommands(fresh, [{ kind: "setMeta", patch }], config).state);
       });
     }
     return { results: applied.results, digest };

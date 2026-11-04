@@ -1045,3 +1045,56 @@ person.
 - *Show the slowest 1 in 10* — with 5-9 rounds that is a single remembered PR.
 - *Per-person or per-repo breakdowns* — see above; this decision exists to
   keep them out.
+
+## adr-deploy-values-are-worker-secrets
+
+**Status.** Accepted 2026-11-04.
+
+**Context.** This repository is public, and so are its GitHub Actions logs.
+The bot has to deploy from there, and some of its values (the review and
+digest channel IDs, the server ID) are deploy-specific: a fork supplies its
+own, and keeping them out of `config.ts` means no real ID is committed. Three
+facts about Cloudflare Workers decided how to pass them:
+- `wrangler deploy --var` and the deploy action's `vars` input print their
+  values unmasked in the log.
+- A var in `wrangler.jsonc` is re-applied by every deploy, so it would have to
+  be committed. A var passed with `--var` or set in the dashboard is replaced
+  by the next deploy that does not pass it (unless `keep_vars` is set), so a
+  local `wrangler deploy` would drop values set by CI.
+- A var and a secret cannot share a binding name, so switching a value from
+  var to secret later means deleting the old binding first.
+
+**Decision.** Every deploy value is a GitHub secret in the `production`
+environment, and each deploy uploads all of them as Worker secrets
+(`wrangler secret bulk`, fed on stdin by the action), including the IDs that
+are not credentials. The channel IDs are `REVIEW_CHANNEL_IDS` and
+`DIGEST_CHANNEL_ID`, read through `loadConfig`; a bad value makes
+`/interactions` answer 500 and the cron tick throw, each naming the binding.
+
+Deploys are gated four ways:
+- the repository variable `DEPLOY_ENABLED` must be `true`, so a fork or a
+  fresh copy skips instead of failing on missing secrets;
+- the `production` environment's deployment-branch rule allows `master` only,
+  so a manual run cannot deploy another branch;
+- an automatic run needs CI to have succeeded for a push to `master` in this
+  repository;
+- one deploy runs at a time, and a queued one waits instead of cancelling a
+  deploy that is midway through.
+
+**Consequences.**
+- On an existing Worker the secrets upload publishes a new version of the old
+  code with the new secrets before `deploy` runs, so a failed deploy leaves old
+  code running with new secret values. Re-running Deploy fixes it.
+- On the first deploy the log shows "Creating new Worker" and a warning that
+  the Worker was "last updated via the script API", because `secret bulk`
+  creates a stub Worker that `deploy` then replaces.
+- Rotating a value means updating the GitHub secret and re-running Deploy.
+- The GitHub credentials are `GH_APP_ID`, `GH_APP_INSTALLATION_ID`,
+  `GH_APP_PRIVATE_KEY` and `GH_PUBLIC_TOKEN`: GitHub reserves the `GITHUB_`
+  prefix and rejects secret names that start with it.
+
+**Alternatives rejected.**
+- *`--var` or the action's `vars` input for the non-credential IDs* — printed
+  unmasked in a public log.
+- *Deploying from a laptop with `wrangler deploy`* — keeps the values off
+  GitHub but wipes any var set by CI and depends on one person's machine.

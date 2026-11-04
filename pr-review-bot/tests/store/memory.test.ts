@@ -42,7 +42,7 @@ function seeded(): StoreState {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0 - 3 * 86_400_000,
-      title: "PT-4398 P10 backend sync-activity signal",
+      title: "PT-9001 P10 backend progress events",
       prAuthorLogin: "jolie",
       isDraft: false,
     }),

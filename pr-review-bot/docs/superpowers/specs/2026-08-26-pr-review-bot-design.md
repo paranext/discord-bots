@@ -1,5 +1,7 @@
 # PR Review Request Bot — Design
 
+> Example repository names, PR titles and Jira keys in this document were anonymized for the public repository.
+
 **Date:** 2026-08-26
 **Status:** Ready to plan. Three rounds of adversarial review are folded in, and
 the nine open questions they raised are all **decided** — see Decision log, which
@@ -183,11 +185,10 @@ are thin enough to be stubbed with a fake `fetch` in tests.
 Checked into the repo, so changes are reviewable one-line PRs:
 
 - **Allowed channels** — channel IDs where the command works and the digest lives.
-- **PRD forum channel ID** — `teamwide-epic-discussions`.
+- **PRD forum channel ID** — the internal PRD forum.
 - **Repo allowlist** — `owner/repo` entries. Initial value:
-  `paranext/paranext-core`, `paranext/paratext-10-studio`,
-  `paranext/paratext-assistant`, `paranext/paratext-bible-extensions`,
-  `paranext/paratext-bible-internal-extensions`,
+  `paranext/paranext-core`, `paranext/example-extension`,
+  `paranext/paratext-bible-extensions`,
   `eten-tech-foundation/scripture-editors`.
 - **Teams** — `Power`, `Simple`, `General`.
 - **Urgency levels** — `🔥 Blocking`, `Soon` (no icon), `🧊 This week`.
@@ -333,9 +334,9 @@ late-returning user can still copy them into a fresh command.
 ## The posted request message
 
 ```
-🔥 Blocking · power · PT-4398 P10 backend sync-activity signal
+🔥 Blocking · power · PT-9001 P10 backend progress events
 Trust PRD · requested by @Jolie
-https://github.com/paranext/paratext-10-studio/pull/177
+https://github.com/paranext/example-extension/pull/177
 [ 👀 Reviewing this ]
 ```
 
@@ -352,24 +353,24 @@ One message per configured channel, pinned by hand once at setup.
 **Needs review** · 4 open · updated 2 minutes ago
 
 __Power__
-🔥 Blocking · PT-4398 P10 backend sync-activity signal · 3 days ago
-     paratext-10-studio#177 · Trust PRD
+🔥 Blocking · PT-9001 P10 backend progress events · 3 days ago
+     example-extension#177 · Trust PRD
      needs a P10 build before Thursday's demo
 
-Soon · PT-4401 Sync activity indicator · 6 hours ago
+Soon · PT-9002 Toolbar progress indicator · 6 hours ago
      paranext-core#2701
 
 __Simple__
-🧊 This week · PT-4363 Internet Settings UI Enhancements · 8 days ago
+🧊 This week · PT-9003 Internet Settings UI Enhancements · 8 days ago
      paranext-core#2695
 
 **Being reviewed** (2)
-👀 PT-3408 Collapse extra spaces in Find queries · Katherine · 🔥 Power
-👀 PT-4325 Registration Needed Dot · Ira · Simple
+👀 PT-9009 Normalize whitespace in search input · Katherine · 🔥 Power
+👀 PT-9004 Unsaved changes badge · Ira · Simple
 
 Recently cleared
 paranext-core#2688 — reviewed by Katherine
-paratext-assistant#88 — cleared by @Jolie
+example-extension#88 — cleared by @Jolie
 ```
 
 Rendering rules:

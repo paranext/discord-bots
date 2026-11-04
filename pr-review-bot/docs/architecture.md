@@ -27,7 +27,9 @@ nothing else:
   (interaction type 1) so the endpoint URL can be registered in the
   Developer Portal. `/review-request`, its modal submit, and its retry button
   are all further gated on `interaction.channel_id` being in
-  `config.allowedChannelIds` (`src/handlers/interactions.ts`).
+  `config.allowedChannelIds` (`src/handlers/interactions.ts`), which
+  `loadConfig` builds from the `REVIEW_CHANNEL_IDS` secret
+  (`config/config.ts`).
 
   The spec asks a stash-expired retry to reopen an empty modal "with a note
   saying so"; `handleRetryButton` (`src/handlers/reviewRequest.ts`) instead
@@ -287,14 +289,14 @@ records the set and acts on nothing. See
 values — secrets never appear in the repo, full stop, not even as obviously-
 fake test placeholders. Under `@cloudflare/vitest-plugin`'s `cloudflareTest`
 environment (the `"workers"` project in `vitest.config.ts`), this means
-`env.GITHUB_APP_PRIVATE_KEY` and the other secret bindings are `undefined` in
+`env.GH_APP_PRIVATE_KEY` and the other secret bindings are `undefined` in
 tests, not strings — there is nothing in config for the test runtime to read.
 
 Every test path as of this writing tolerates that: `CredentialProvider
 .health()` and the paths `tests/workers/index.test.ts` exercises never touch
-the raw `GITHUB_APP_PRIVATE_KEY` value, only whether a credential group has
+the raw `GH_APP_PRIVATE_KEY` value, only whether a credential group has
 failed closed. **A future test that exercises RS256 JWT signing, or any code
-path that actually parses `GITHUB_APP_PRIVATE_KEY` as PEM, must inject a
+path that actually parses `GH_APP_PRIVATE_KEY` as PEM, must inject a
 throwaway test key explicitly inside that test** — generate or hardcode a
 PEM in the test file itself, clearly labeled as a throwaway that is not a
 real credential — rather than expecting one to be present in `env`. Without

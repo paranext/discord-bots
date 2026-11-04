@@ -148,15 +148,69 @@ describe("fetch", () => {
     // Reaching the modal at all proves all three arrived: requestDeps() returns
     // null without them and the command answers "not enabled yet".
     const { env: withDeps, sign } = await fullEnv();
-    // The real config's allowedChannelIds gates the command by channel now —
-    // this has to originate from one of them to reach the modal at all.
+    // allowedChannelIds gates the command by channel, and the Worker reads it
+    // from env — this channel is the `REVIEW_CHANNEL_IDS` test binding in
+    // `vitest.config.ts`, so the request has to originate there to reach the
+    // modal at all.
     const request = await signedInteraction(
-      { type: 2, data: { name: "review-request" }, channel_id: "REPLACE_WITH_REVIEW_CHANNEL_ID" },
+      { type: 2, data: { name: "review-request" }, channel_id: "100000000000000001" },
       sign,
     );
     const response = await worker.fetch(request, withDeps, fetchCtx());
     const body = (await response.json()) as { type: number };
     expect(body.type).toBe(9);
+  });
+
+  it("answers 500 on /interactions when the channel config is invalid, without echoing it", async () => {
+    // A bad secret is often a pasted token or the wrong secret entirely, so the
+    // response must not carry it back to whoever sent the request.
+    const { env: withDeps, sign } = await fullEnv();
+    const broken = { ...withDeps, REVIEW_CHANNEL_IDS: "nope" } as unknown as Env;
+    const request = await signedInteraction(
+      { type: 2, data: { name: "review-request" }, channel_id: "100000000000000001" },
+      sign,
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(request, broken, fetchCtx());
+      expect(response.status).toBe(500);
+      expect(await response.text()).not.toContain("nope");
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("answers an unsigned /interactions with 401, not the config error, and logs nothing", async () => {
+    // The config is read only after the signature checks out, so nobody
+    // outside Discord can learn the bot is misconfigured or flood the logs.
+    const { env: withDeps } = await fullEnv();
+    const broken = { ...withDeps, REVIEW_CHANNEL_IDS: "nope" } as unknown as Env;
+    const request = new Request("https://bot/interactions", {
+      method: "POST",
+      body: JSON.stringify({ type: 1 }),
+      headers: { "x-signature-ed25519": "00".repeat(64), "x-signature-timestamp": "1756000000" },
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(request, broken, fetchCtx());
+      expect(response.status).toBe(401);
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("still serves /health when the channel config is invalid", async () => {
+    // /health is how an operator diagnoses a broken deploy, so a broken
+    // channel secret must not take it down with the rest of the bot.
+    // A fresh sync, so the 200 is about the route surviving and not hostage to
+    // the staleness check, which answers 503 before any tick has run.
+    const stub = env.RECORDS.get(env.RECORDS.idFromName("v1"));
+    await stub.apply([{ kind: "setMeta", patch: { lastSync: Date.now() } }], { now: Date.now(), rerender: false });
+    const { env: withDeps } = await fullEnv();
+    const broken = { ...withDeps, REVIEW_CHANNEL_IDS: "nope", HEALTH_TOKEN } as unknown as Env;
+    const response = await worker.fetch(healthRequest(), broken, fetchCtx());
+    expect(response.status).toBe(200);
   });
 });
 
@@ -270,7 +324,7 @@ describe("the credential provider across invocations", () => {
     // The property that matters: the latch above must not outlive the
     // credential that earned it. An operator who rotates the token and
     // redeploys gets a provider that has never failed.
-    const response = await worker.fetch(healthRequest(), healthEnv({ GITHUB_PUBLIC_TOKEN: "ghp_rotated" }), ctx);
+    const response = await worker.fetch(healthRequest(), healthEnv({ GH_PUBLIC_TOKEN: "ghp_rotated" }), ctx);
     const body = (await response.json()) as { credentials: { public: { failedClosed: boolean } } };
     expect(body.credentials.public.failedClosed).toBe(false);
   });
@@ -301,9 +355,9 @@ describe("the credential provider across invocations", () => {
     await seedOpenRecord("paranext", "paranext-core", 4398);
     const withKey = {
       ...env,
-      GITHUB_APP_ID: "12345",
-      GITHUB_APP_INSTALLATION_ID: "67890",
-      GITHUB_APP_PRIVATE_KEY: TEST_PEM,
+      GH_APP_ID: "12345",
+      GH_APP_INSTALLATION_ID: "67890",
+      GH_APP_PRIVATE_KEY: TEST_PEM,
     };
 
     for (const _tick of [1, 2, 3]) {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { recordId } from "../../src/core/record.js";
 import { testRecord } from "../../fixtures/records.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
-import { CURRENT_SCHEMA_VERSION, type Command, type DigestPayload, type DigestPublisher, type FinishTickInput, type Store, type StoreState } from "../../src/store/types.js";
+import { CURRENT_SCHEMA_VERSION, type Command, type Config, type DigestPayload, type DigestPublisher, type FinishTickInput, type Store, type StoreState } from "../../src/store/types.js";
 import { migrateState } from "../../src/store/schema.js";
 import { emptyState } from "../../src/store/apply.js";
 import { emptyStats } from "../../src/core/stats/types.js";
@@ -45,7 +45,7 @@ describe("RecordsObject", () => {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0,
-      title: "PT-4398",
+      title: "PT-9001",
       prAuthorLogin: "jolie",
       isDraft: false,
     });
@@ -55,7 +55,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0,
          fields: { team: "Power", urgency: "blocking", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
 
@@ -144,6 +144,31 @@ describe("RecordsObject", () => {
     expect((await stub.readState()).meta.syncLease).toBeNull();
   });
 
+  it("builds the digest publisher with the env digest channel", async () => {
+    // The channel IDs are Worker secrets now, so the DO must read them from its
+    // own env rather than the static config's placeholders — otherwise every
+    // digest write targets a channel that does not exist.
+    const patches: DigestPayload[] = [];
+    const seen: Config[] = [];
+    const id = env.RECORDS.idFromName("test-publisher-config");
+    const stub = env.RECORDS.get(id);
+
+    await runInDurableObject(stub, (instance: unknown) => {
+      (instance as unknown as { setPublisherFactory: (f: unknown) => void }).setPublisherFactory(
+        (_env: unknown, config: Config) => {
+          seen.push(config);
+          return fakePublisher(patches);
+        },
+      );
+    });
+
+    await stub.beginTick(T0);
+    await stub.finishTick({ commands: [], leaseHeldSince: T0, now: T0 + 20_000 });
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.at(-1)!.digestChannelId).toBe("100000000000000001");
+  });
+
   it("keeps a mid-tick claim through finishTick", async () => {
     const patches: DigestPayload[] = [];
     const id = env.RECORDS.idFromName("test-ordering");
@@ -160,7 +185,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
          fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
     await stub.apply([{ kind: "setMeta", patch: { digestMessageId: "digest-1", lastSync: T0, lastDailyPostDate: "2026-08-31" } }], { now: T0, rerender: false });
@@ -232,7 +257,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
          fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
     await stub.apply(
@@ -309,7 +334,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
          fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
     await stub.apply(
@@ -397,7 +422,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
          fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
     await stub.apply(
@@ -604,7 +629,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
          fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
     // digestMessageId stays null: this is the first live tick, so the tick
@@ -639,7 +664,7 @@ describe("RecordsObject", () => {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0 - 86_400_000,
-      title: "PT-4398",
+      title: "PT-9001",
       prAuthorLogin: "jolie",
       isDraft: false,
     });

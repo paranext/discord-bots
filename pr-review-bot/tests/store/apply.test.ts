@@ -30,7 +30,7 @@ function withRecord(overrides: Partial<PrRecord> = {}): StoreState {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -46,7 +46,7 @@ function run(state: StoreState, ...commands: Command[]) {
 function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
   return {
     slug: ID,
-    title: "PT-4363",
+    title: "PT-9003",
     state: "OPEN",
     merged: false,
     isDraft: false,
@@ -72,7 +72,7 @@ describe("upsertRequest", () => {
       channelId: "chan",
       messageId: "msg-2",
     },
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   };
@@ -417,7 +417,7 @@ describe("foldStats scrubs round timing", () => {
       pr: PR,
       at,
       fields: FIELDS,
-      title: "PT-4363",
+      title: "PT-9003",
       prAuthorLogin: "jolie",
       isDraft: false,
     });
@@ -840,7 +840,7 @@ describe("review stats entries", () => {
         pr: PR,
         at: T0 + 6 * HOUR,
         fields: FIELDS,
-        title: "PT-4363",
+        title: "PT-9003",
         prAuthorLogin: "jolie",
         isDraft: false,
       },

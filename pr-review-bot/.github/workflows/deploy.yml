@@ -1,0 +1,117 @@
+name: Deploy
+on:
+  # Deploy only after CI has passed on master, never in parallel with it.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and a queued deploy waits rather than cancelling one
+# that is midway through uploading secrets or registering commands.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Every deploy value is a secret in this environment, so a fork or a copy of
+    # the repo has nothing to deploy with.
+    environment: production
+    # DEPLOY_ENABLED is a repository variable, so forks and fresh copies skip
+    # instead of failing on missing secrets. For workflow_run: CI must have
+    # succeeded (completed also fires on failure); it must have run for a push,
+    # because the branches filter also matches a pull request whose head branch
+    # is named master, such as one from a fork's master; and the commit must come
+    # from this repository, a second guard against running a fork's code.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'master' &&
+          github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    steps:
+      # Deploy the exact commit CI tested, not whatever master points at now.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # CI runs for two quick pushes can finish out of order, and `concurrency`
+      # only serialises deploys, it does not order them. If master has moved
+      # past this commit, skip: the newer commit's own CI run deploys it, and
+      # deploying this one after it would roll production back.
+      - name: Check this commit is still the tip of master
+        id: tip
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_run" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tip="$(git ls-remote origin refs/heads/master | cut -f1)"
+          if [ "${tip}" = "${HEAD_SHA}" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::master is now at ${tip}; skipping this deploy of ${HEAD_SHA}."
+          fi
+      - if: steps.tip.outputs.current == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Installs the pinned wrangler from package.json, which the action then
+      # uses because wranglerVersion is not set.
+      - if: steps.tip.outputs.current == 'true'
+        run: npm ci
+      # Values go only through `secrets`, which the action pipes to
+      # `wrangler secret bulk` on stdin. The `vars` input and `--var` print
+      # their values in the log, and this repository's logs are public.
+      # Pinned to a commit SHA, not a movable tag, because this step receives
+      # every production secret.
+      - if: steps.tip.outputs.current == 'true'
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          secrets: |
+            DISCORD_BOT_TOKEN
+            DISCORD_PUBLIC_KEY
+            GH_APP_PRIVATE_KEY
+            GH_PUBLIC_TOKEN
+            HEALTH_TOKEN
+            STATS_TOKEN
+            DISCORD_APP_ID
+            DISCORD_GUILD_ID
+            DISCORD_BOT_USER_ID
+            GH_APP_ID
+            GH_APP_INSTALLATION_ID
+            REVIEW_CHANNEL_IDS
+            DIGEST_CHANNEL_ID
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_PUBLIC_TOKEN: ${{ secrets.GH_PUBLIC_TOKEN }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
+          STATS_TOKEN: ${{ secrets.STATS_TOKEN }}
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_BOT_USER_ID: ${{ secrets.DISCORD_BOT_USER_ID }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          REVIEW_CHANNEL_IDS: ${{ secrets.REVIEW_CHANNEL_IDS }}
+          DIGEST_CHANNEL_ID: ${{ secrets.DIGEST_CHANNEL_ID }}
+      # Re-register slash commands so the guild matches the deployed code.
+      - if: steps.tip.outputs.current == 'true'
+        run: npm run register-commands
+        env:
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

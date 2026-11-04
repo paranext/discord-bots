@@ -1,4 +1,4 @@
-import type { Config } from "../../config/config.js";
+import { ConfigError, type Config } from "../../config/config.js";
 import { decodeOptionValue } from "../core/ranking.js";
 import { isOpen } from "../core/record.js";
 import { RETRY_PREFIX } from "../core/render/rejection.js";
@@ -30,6 +30,15 @@ export interface InteractionDeps {
   credentials?: CredentialProvider;
   appId?: string;
 }
+
+/**
+ * What `handleInteraction` is called with. `config` may be a loader, which runs
+ * only after the signature checks out: a bad channel secret then answers a
+ * signed request with 500, while an unsigned one still gets 401 and writes no
+ * log line, so nobody outside Discord can learn the bot is misconfigured or
+ * flood the logs with `configError`.
+ */
+export type InteractionEntryDeps = Omit<InteractionDeps, "config"> & { config: Config | (() => Config) };
 
 interface Interaction {
   type: number;
@@ -75,16 +84,25 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-export async function handleInteraction(request: Request, deps: InteractionDeps): Promise<Response> {
+export async function handleInteraction(request: Request, entry: InteractionEntryDeps): Promise<Response> {
   const raw = await request.text();
-  const verify = deps.verify ?? verifyDiscordRequest;
+  const verify = entry.verify ?? verifyDiscordRequest;
   const verified = await verify(
     raw,
     request.headers.get("x-signature-ed25519"),
     request.headers.get("x-signature-timestamp"),
-    deps.publicKey,
+    entry.publicKey,
   );
   if (!verified) return new Response("invalid request signature", { status: 401 });
+
+  let config: Config;
+  try {
+    config = typeof entry.config === "function" ? entry.config() : entry.config;
+  } catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    return new Response("bot misconfigured", { status: 500 });
+  }
+  const deps: InteractionDeps = { ...entry, config };
 
   let interaction: Interaction;
   try {

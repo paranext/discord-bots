@@ -1,5 +1,7 @@
 # Drop the PRD field — Design
 
+> Example repository names, PR titles and Jira keys in this document were anonymized for the public repository.
+
 **Date:** 2026-10-12
 **Status:** Ready for review. One adversarial review is folded in. Every finding
 is either applied inline or answered below in *Answered objections*.
@@ -10,7 +12,7 @@ is either applied inline or answered below in *Answered objections*.
 The bot runs on the public Discord server only, and we will not have access to
 the private server. The `/review-request` modal's PRD dropdown is fed by
 `config.prdForumChannelId`, which points at the private server's
-`teamwide-epic-discussions` forum. That fails twice over:
+internal PRD forum. That fails twice over:
 
 - The bot would have to be installed on, and read threads from, a second server.
 - A PRD is stored as a thread id and rendered as a `<#thread>` mention. A
@@ -19,7 +21,7 @@ the private server. The `/review-request` modal's PRD dropdown is fed by
 
 We considered other sources — a forum on the public server, a static list in
 config, and GitHub labels or milestones (the repos have no PRD-shaped ones:
-`paranext-core`'s milestones are quarters, and `paratext-10-studio` has none).
+`paranext-core`'s milestones are quarters, and `example-extension` has none).
 The decision is to **drop the PRD field entirely**. A requester who wants to
 point at a PRD can say so in the free-text note.
 
@@ -175,7 +177,7 @@ explicitly that it describes version 3.
 - **`docs/setup.md`:**
   - Add the public-server-only sentence at the top.
   - Delete the section *Rollout stage 1: record the PRD thread fixtures*. It is the only "rollout stage" section, and the numbered steps 1–16 are a separate series, so **no step numbers move**.
-  - In step 5, remove "and the PRD forum (`teamwide-epic-discussions`)" from the intro (line 135) and the PRD-forum permission paragraph (lines 142–145).
+  - In step 5, remove "and the internal PRD forum" from the intro (line 135) and the PRD-forum permission paragraph (lines 142–145).
   - In step 9, change "Three placeholders" to "Two" and delete the `prdForumChannelId` bullet.
 - **`docs/architecture.md`:**
   - Line 19 says the modal is built from `Meta.prdCache`. Change it to say the modal is built from config alone.

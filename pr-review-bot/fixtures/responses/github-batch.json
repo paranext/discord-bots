@@ -3,14 +3,14 @@
     "p0": {
       "pullRequest": {
         "number": 2695,
-        "title": "PT-4363: Internet & Connectivity settings UI refinements",
+        "title": "PT-9003: Internet & Connectivity settings UI refinements",
         "isDraft": false,
         "merged": false,
         "state": "OPEN",
         "mergedAt": null,
         "closedAt": null,
         "author": {
-          "login": "katherinejensen00"
+          "login": "reviewer-a"
         },
         "reviews": {
           "nodes": []
@@ -27,7 +27,7 @@
         "mergedAt": "2026-07-30T18:00:00Z",
         "closedAt": "2026-07-30T18:00:00Z",
         "author": {
-          "login": "lyonsil"
+          "login": "reviewer-b"
         },
         "reviews": {
           "nodes": [
@@ -35,7 +35,7 @@
               "submittedAt": "2026-07-23T17:16:56Z",
               "state": "COMMENTED",
               "author": {
-                "login": "tjcouch-sil",
+                "login": "reviewer-c",
                 "__typename": "User"
               }
             },
@@ -43,7 +43,7 @@
               "submittedAt": "2026-07-30T17:54:01Z",
               "state": "APPROVED",
               "author": {
-                "login": "tjcouch-sil",
+                "login": "reviewer-c",
                 "__typename": "User"
               }
             }

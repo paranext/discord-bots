@@ -1,4 +1,4 @@
-import { config } from "../config/config.js";
+import { config, ConfigError, loadConfig, type Config } from "../config/config.js";
 import { DiscordRest } from "./discord/rest.js";
 import { CredentialProvider } from "./github/credentials.js";
 import { handleHealth } from "./handlers/health.js";
@@ -37,15 +37,29 @@ let credentials: { key: string; provider: CredentialProvider } | null = null;
 
 function credentialsFor(env: Env): CredentialProvider {
   const secrets = {
-    appId: env.GITHUB_APP_ID,
-    appInstallationId: env.GITHUB_APP_INSTALLATION_ID,
-    appPrivateKeyPem: env.GITHUB_APP_PRIVATE_KEY,
-    publicToken: env.GITHUB_PUBLIC_TOKEN,
+    appId: env.GH_APP_ID,
+    appInstallationId: env.GH_APP_INSTALLATION_ID,
+    appPrivateKeyPem: env.GH_APP_PRIVATE_KEY,
+    publicToken: env.GH_PUBLIC_TOKEN,
   };
   const key = JSON.stringify(secrets);
   if (credentials !== null && credentials.key === key) return credentials.provider;
   credentials = { key, provider: new CredentialProvider(secrets) };
   return credentials.provider;
+}
+
+/**
+ * `loadConfig(env)`, with a `ConfigError` logged before it is rethrown. Logs
+ * only the message, which names the binding and never its value: the channel
+ * IDs are secrets, and a malformed one is often some other secret pasted in.
+ */
+function channelConfig(env: Env): Config {
+  try {
+    return loadConfig(env);
+  } catch (e) {
+    if (e instanceof ConfigError) console.error(JSON.stringify({ configError: e.message }));
+    throw e;
+  }
 }
 
 export default {
@@ -80,10 +94,14 @@ export default {
       });
     }
 
+    // `/health` and `/stats` above read only the static config's timings, so a
+    // broken channel secret leaves them reachable; the `configError` log line
+    // is what names the bad binding. The channel config is passed as a loader
+    // so it is read only once the request's signature has been verified.
     if (url.pathname === "/interactions" && request.method === "POST") {
       return handleInteraction(request, {
         store: storeFor(env),
-        config,
+        config: () => channelConfig(env),
         publicKey: env.DISCORD_PUBLIC_KEY,
         now: () => Date.now(),
         waitUntil: (work) => ctx.waitUntil(work),
@@ -97,11 +115,15 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // A `ConfigError` throws out of the handler on purpose: the cron run then
+    // shows as failed in the dashboard, rather than as a tick that ran and
+    // quietly posted nowhere.
+    const channels = channelConfig(env);
     const report = await runTick({
       store: storeFor(env),
       rest: new DiscordRest(env.DISCORD_BOT_TOKEN),
       credentials: credentialsFor(env),
-      config,
+      config: channels,
       botUserId: env.DISCORD_BOT_USER_ID,
       now: Date.now(),
     });

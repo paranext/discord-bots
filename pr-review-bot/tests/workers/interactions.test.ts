@@ -13,7 +13,8 @@ import type { DigestPayload, DigestPublisher, StoreState } from "../../src/store
 const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const DAY = 86_400_000;
 const CHANNEL = "chan-1";
-const config = { ...baseConfig, allowedChannelIds: [CHANNEL], digestChannelId: CHANNEL };
+// The claim tests assert the immediate patch, and production runs with `false`.
+const config = { ...baseConfig, allowedChannelIds: [CHANNEL], digestChannelId: CHANNEL, immediateDigestRewrite: true };
 const ID = "eten-tech-foundation/scripture-editors/341";
 
 function record(overrides: Partial<PrRecord> = {}): PrRecord {
@@ -99,10 +100,10 @@ function rawRequest(payload: unknown) {
   });
 }
 
-function deps(store: MemoryStore, verified = true) {
+function deps(store: MemoryStore, verified = true, depsConfig = config) {
   return {
     store,
-    config,
+    config: depsConfig,
     publicKey: "00".repeat(32),
     now: () => T0,
     verify: async () => verified,
@@ -168,6 +169,18 @@ describe("handleInteraction — claim", () => {
     const state = await store.readState();
     expect(state.records[ID]?.claimedByName).toBe("Katherine");
     expect(patches.length).toBeGreaterThan(0);
+  });
+
+  it("records the claim without patching the digest when immediate rewrite is off", async () => {
+    const { store, patches } = makeStore([record()]);
+    const value = `${ID}:${T0 - 3 * DAY}`;
+    await handleInteraction(
+      componentRequest("digest:claim", value),
+      deps(store, true, { ...config, immediateDigestRewrite: false }),
+    );
+
+    expect((await store.readState()).records[ID]?.claimedByName).toBe("Katherine");
+    expect(patches.length).toBe(0);
   });
 
   it("names the holder when someone else already claimed it", async () => {

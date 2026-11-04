@@ -3,7 +3,8 @@
 Follow this in order. The order is load-bearing — several steps fail
 confusingly, not loudly, if done out of sequence.
 
-Deployment target throughout is Cloudflare Workers (`wrangler deploy`). The
+Deployment target throughout is Cloudflare Workers, deployed by the Deploy
+GitHub Actions workflow (steps 11 and 12). The
 refresh tick runs on a cron trigger every 5 minutes (`wrangler.jsonc`'s
 `triggers.crons`).
 
@@ -80,7 +81,7 @@ openssl pkcs8 -topk8 -nocrypt -in github-app.private-key.pem \
 ```
 
 Use the resulting `github-app.pkcs8.pem` contents for the
-`GITHUB_APP_PRIVATE_KEY` secret in step 11. Do not commit either PEM file to
+`GH_APP_PRIVATE_KEY` secret in step 11. Do not commit either PEM file to
 the repo.
 
 ## 8. Create the public-read token
@@ -96,35 +97,33 @@ rotation section (there is a line reserved for it) before moving on — a
 fine-grained token expiring mid-sprint with no warning is a predictable,
 avoidable outage.
 
-## 9. Fill in `config/config.ts` and open a PR
+## 9. Review `config/config.ts`
 
-Two placeholders need real values before this deploys against a real
-server:
+Nothing in `config/config.ts` needs a real value before the first deploy. The
+review and digest channel IDs are not in the file: they are the secrets
+`REVIEW_CHANNEL_IDS` and `DIGEST_CHANNEL_ID`, which you set in step 11. They
+are deploy-specific, so a fork supplies its own and no real ID is committed,
+and a var would print them unmasked in the public Actions log. `loadConfig`
+reads them at request time and validates them.
 
-- `allowedChannelIds` / `digestChannelId` — the real review channel ID
+What is left in the file is behaviour you may want to change in a reviewable
+PR, such as `immediateDigestRewrite` below.
 
-Config is checked into the repo specifically so this is a reviewable
-one-line PR rather than a manual step someone has to remember to redo on
-every redeploy.
+### `immediateDigestRewrite` ships off for the free plan
 
-### Decide `immediateDigestRewrite` before you deploy
+`config.immediateDigestRewrite` ships as `false`, because this bot deploys on
+the Cloudflare free plan:
 
-`config.immediateDigestRewrite` ships as `true`. **Whoever deploys must
-decide it** — the right value depends on the host, and this runbook cannot
-know which one you are on:
-
-- **Paid Cloudflare plan, or a container host: leave it `true`.** A claim from
-  the digest menu rewrites the pinned message immediately, which is what makes
-  the menus feel like buttons rather than a form.
-- **Cloudflare free plan: set it to `false`.** The free plan's per-invocation
+- **Cloudflare free plan: leave it `false`.** The free plan's per-invocation
   CPU budget is about 10 ms, and an interaction that does Ed25519 verification,
   a full render and an embed serialise inside that budget will exceed it. The
   symptom is not an error message: the person who used the menu sees a spinner
   that never resolves, and nothing in the channel explains why. With `false`,
   the interaction writes and returns, and the next tick (within 5 minutes)
   repaints the digest.
-
-Change it in the same PR as the channel IDs above.
+- **Paid Cloudflare plan, or a container host: you may set it to `true`.** A
+  claim from the digest menu then rewrites the pinned message immediately,
+  which is what makes the menus feel like buttons rather than a form.
 
 ## 10. Deploy the Durable Object
 
@@ -133,26 +132,64 @@ The store is a single Cloudflare Durable Object (`RecordsObject`, bound as
 via the `migrations` entry in `wrangler.jsonc` — there is no separate
 provisioning step and, deliberately, **no KV namespace to create**: this
 plan does not use KV at all (see `adr-no-kv-namespace` in
-`docs/architecture-decisions.md`). Running `wrangler deploy` (step 12) is
+`docs/architecture-decisions.md`). Running the Deploy workflow (step 12) is
 sufficient.
 
-## 11. Set the Worker secrets
+## 11. Set the GitHub secrets
 
-Never put these in the repo — Worker secrets only:
+The bot deploys from GitHub Actions (`.github/workflows/deploy.yml`). Every
+deploy value is a GitHub secret, and each deploy uploads them all to the
+Worker as Worker secrets. Nothing is a `wrangler.jsonc` var, because this
+repo's Actions logs are public (see `adr-deploy-values-are-worker-secrets`).
+The GitHub credentials use a `GH_` prefix because GitHub rejects secret names
+that start with `GITHUB_`.
 
-```bash
-wrangler secret put DISCORD_BOT_TOKEN
-wrangler secret put DISCORD_PUBLIC_KEY
-wrangler secret put DISCORD_APP_ID   # also read as a Worker binding at request time — the modal's callback needs it
-wrangler secret put DISCORD_GUILD_ID
-wrangler secret put DISCORD_BOT_USER_ID
-wrangler secret put GITHUB_APP_ID
-wrangler secret put GITHUB_APP_INSTALLATION_ID
-wrangler secret put GITHUB_APP_PRIVATE_KEY   # the PKCS#8 pem from step 7
-wrangler secret put GITHUB_PUBLIC_TOKEN
-wrangler secret put HEALTH_TOKEN              # any long random string, e.g. `openssl rand -hex 32`
-wrangler secret put STATS_TOKEN               # a different long random string
-```
+**Create the environment first.** Settings → Environments → New environment,
+named `production`. Under "Deployment branches and tags", choose "Selected
+branches and tags" and add `master` only. This rule is required: it is what
+stops a manual run of Deploy from deploying another branch with the
+production secrets.
+
+Then add these as **environment secrets** on `production`:
+
+| Secret | What it is, and where to get it |
+|---|---|
+| `DISCORD_BOT_TOKEN` | The bot token (step 1) |
+| `DISCORD_PUBLIC_KEY` | The application's public key (step 1) |
+| `GH_APP_PRIVATE_KEY` | The PKCS#8 pem from step 7, including the `BEGIN`/`END` lines |
+| `GH_PUBLIC_TOKEN` | The public-read token (step 8) |
+| `HEALTH_TOKEN` | A long random string: `openssl rand -hex 32` |
+| `STATS_TOKEN` | A different long random string: `openssl rand -hex 32` |
+| `DISCORD_APP_ID` | The application ID (step 1). Also read as a Worker binding at request time: the modal's callback needs it |
+| `DISCORD_GUILD_ID` | The server ID |
+| `DISCORD_BOT_USER_ID` | The bot user's ID |
+| `GH_APP_ID` | The App ID (step 6) |
+| `GH_APP_INSTALLATION_ID` | The installation ID (step 6) |
+| `REVIEW_CHANNEL_IDS` | The channels the bot accepts `/review-request` from, comma-separated with no brackets or quotes: `111111111111111111,222222222222222222` |
+| `DIGEST_CHANNEL_ID` | The channel the digest is pinned in. **Must be one of `REVIEW_CHANNEL_IDS`** |
+| `CLOUDFLARE_API_TOKEN` | See below |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages → the Account ID on the right |
+
+Generate `HEALTH_TOKEN` and `STATS_TOKEN` yourself and also keep both in the
+team password manager. GitHub will not show a secret's value again, and you
+need both to read `/health` and `/stats`.
+
+**The Cloudflare API token.** Cloudflare dashboard → My Profile → API Tokens →
+Create Token. Use the "Edit Cloudflare Workers" template, or build the token
+by hand with Workers Scripts: Edit plus Account Settings: Read, scoped to this
+account. After the first deploy, update this paragraph to list the permissions
+that were actually needed.
+
+A bad `REVIEW_CHANNEL_IDS` or `DIGEST_CHANNEL_ID` does not stop the deploy.
+`/interactions` answers 500 and the cron tick throws, each logging which
+binding is wrong; `/health` and `/stats` keep working. Fix the secret and
+re-run Deploy.
+
+**Set the repository variable last.** Settings → Secrets and variables →
+Actions → Variables → New repository variable: `DEPLOY_ENABLED` = `true`.
+Until it is `true`, Deploy skips every run, which is why a fork or a fresh
+copy of the repo does not fail on missing secrets. Set it only after every
+secret above exists.
 
 `HEALTH_TOKEN` is the shared secret for `GET /health`. That endpoint reports
 the GitHub App installation id, each credential's failure reason, the digest
@@ -169,10 +206,25 @@ body. Like `/health`, **`/stats` answers 404 until it is set.**
 
 ## 12. Deploy and watch three ticks
 
+Run the Deploy workflow by hand: Actions → Deploy → Run workflow, on `master`.
+From now on it also runs after every CI success on `master`.
+
+The first deploy's log shows "Creating new Worker" and a warning that the
+Worker was "last updated via the script API". Both are expected: the action
+uploads the secrets with `wrangler secret bulk`, which creates a stub Worker,
+and `wrangler deploy` then replaces it with the real code. The log also shows
+the Worker's Version ID and its `workers.dev` URL. Neither is a secret.
+
+Then watch the ticks. `wrangler tail` needs you logged in to Cloudflare
+first:
+
 ```bash
-npm run deploy
-wrangler tail --format pretty
+npx wrangler login
+npx wrangler tail --format pretty
 ```
+
+Without a laptop, use the Cloudflare dashboard instead: Workers & Pages → the
+Worker → Logs (Workers Logs, enabled by `observability` in `wrangler.jsonc`).
 
 **Expected:** three consecutive ticks with `syncOk: true` in the tick
 summary and a subrequest count well under 50. With no requests yet, the
@@ -197,7 +249,14 @@ signature verification, `src/discord/verify.ts`, correctly rejects it), then
 a signed `PING`, which the endpoint must answer with a `PONG` before Discord
 will accept the URL.
 
-## 15. Register both commands
+If the portal rejects the URL, check `wrangler tail` or Workers Logs for a
+`configError` line naming a bad binding.
+
+## 15. Register the commands
+
+The Deploy workflow runs `npm run register-commands` after every deploy, so
+the commands are already registered once step 12 succeeds. To register by
+hand (for example if that step failed), run:
 
 ```bash
 DISCORD_APP_ID=... DISCORD_GUILD_ID=... DISCORD_BOT_TOKEN=... \
@@ -211,8 +270,7 @@ to fetch a package nothing here declares.)
 
 This registers `/review-list`, `/review-request` and `/review-stats`; there
 is no flag. When a release adds a command (`/review-stats` was added with
-schema v7), re-run `npm run register-commands` after deploying, or Discord
-won't offer it.
+schema v7), the next deploy registers it; no manual step.
 
 Then announce it to the team, and set the channel topic (or pin a message)
 saying: "Use `/review-request` to ask for a review. Pasted links aren't
@@ -227,7 +285,7 @@ curl -s -H "Authorization: Bearer $HEALTH_TOKEN" \
 ```
 
 Expect HTTP 200 and a `lastSync` timestamp within the last few minutes. A
-**404** means `HEALTH_TOKEN` was never set (step 11); a **401** means the
+**404** means the `HEALTH_TOKEN` secret was never set (step 11); a **401** means the
 token you sent does not match the one the Worker holds; a **405** means the
 request was not a `GET`. See
 `docs/operations.md` for what each field means and what to do if this

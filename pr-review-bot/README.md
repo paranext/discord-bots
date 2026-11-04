@@ -136,3 +136,15 @@ this is why they were left off in the first place.
   design is the way it is.
 - The full design spec:
   [`docs/superpowers/specs/2026-08-26-pr-review-bot-design.md`](docs/superpowers/specs/2026-08-26-pr-review-bot-design.md).
+
+## Deploying
+
+The bot deploys from GitHub Actions, with every value held as a GitHub secret.
+See [`docs/setup.md`](docs/setup.md), steps 11 and 12, for the secrets to
+create and how to run the first deploy.
+
+## Test keys
+
+`tests/workers/*.test.ts` contain RSA private keys generated only for these
+tests. They sign nothing real and are allowlisted in `.gitleaks.toml` and
+`.github/secret_scanning.yml`.

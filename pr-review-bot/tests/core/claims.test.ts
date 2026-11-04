@@ -14,7 +14,7 @@ function record(overrides: Partial<PrRecord> = {}): PrRecord {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   });

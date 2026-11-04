@@ -22,3 +22,51 @@ jobs:
       - run: npm run lint
       - run: npm run coverage
       - run: npm run preview
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, so the PR's base..head commit range is available to scan.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Installed straight from the release rather than gitleaks/gitleaks-action,
+      # which needs a paid license for organization repos. The tarball is checked
+      # against the release's checksums file so a corrupted or swapped download
+      # fails the job instead of running.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLO "${base}/${tarball}"
+          curl -fsSLO "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " ${tarball}\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum --check --strict
+          tar -xzf "${tarball}" gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      # Scan only the commits this event introduces: the PR's own range, or
+      # every commit the push added. Known-safe test keys are allowlisted in
+      # .gitleaks.toml.
+      - name: Scan pull request commits
+        if: github.event_name == 'pull_request'
+        run: >-
+          gitleaks git --config .gitleaks.toml
+          --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          --redact --no-banner
+      # `before..sha`, not just the tip: a push of several commits, or a merge
+      # commit (whose own patch is empty), would otherwise leave the commits
+      # under it unscanned. When `before` is unknown (a force push that
+      # discarded it), scan everything reachable from the pushed commit.
+      - name: Scan pushed commits
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            range="${BEFORE}..${GITHUB_SHA}"
+          else
+            range="${GITHUB_SHA}"
+          fi
+          gitleaks git --config .gitleaks.toml --log-opts="${range}" --redact --no-banner

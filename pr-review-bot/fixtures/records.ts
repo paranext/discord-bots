@@ -103,35 +103,35 @@ export function make(input: MakeInput): PrRecord {
 }
 
 const ordinaryDay: PrRecord[] = [
-  make({ repo: "paratext-10-studio", number: 177, title: "PT-4398 P10 backend sync-activity signal", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo" }),
-  make({ repo: "paranext-core", number: 2701, title: "PT-4401 Sync activity indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
-  make({ repo: "paranext-core", number: 2695, title: "PT-4363 Internet Settings UI Enhancements", team: "Simple", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
-  make({ repo: "paranext-core", number: 3408, title: "PT-3408 Collapse extra spaces in Find queries", team: "Power", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),
-  make({ repo: "paranext-core", number: 4325, title: "PT-4325 Registration Needed Dot", team: "Simple", urgency: "soon", ageMs: 1 * DAY, claimedByName: "Ira" }),
+  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo" }),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
+  make({ repo: "paranext-core", number: 2695, title: "PT-9003 Internet Settings UI Enhancements", team: "Simple", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
+  make({ repo: "paranext-core", number: 3408, title: "PT-9009 Normalize whitespace in search input", team: "Power", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),
+  make({ repo: "paranext-core", number: 4325, title: "PT-9004 Unsaved changes badge", team: "Simple", urgency: "soon", ageMs: 1 * DAY, claimedByName: "Ira" }),
 ];
 
 // Every request names a team, so the only way a row reaches Needs triage now is
 // a team that was removed from config after the request was made. The cast is
 // the point: "Retired" is not a `TeamName` any more.
 const triage: PrRecord[] = [
-  make({ repo: "paratext-10-studio", number: 177, title: "PT-4398 P10 backend sync-activity signal", team: "Retired" as TeamName, urgency: "blocking", ageMs: 3 * DAY }),
-  make({ repo: "paranext-core", number: 2708, title: "PT-4412 Registration dot placement", team: "Retired" as TeamName, urgency: "soon", ageMs: 1 * DAY }),
+  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", team: "Retired" as TeamName, urgency: "blocking", ageMs: 3 * DAY }),
+  make({ repo: "paranext-core", number: 2708, title: "PT-9005 Badge alignment in narrow panels", team: "Retired" as TeamName, urgency: "soon", ageMs: 1 * DAY }),
   make({ owner: "eten-tech-foundation", repo: "scripture-editors", number: 341, title: "Fix marker parsing for \\fig", team: "Retired" as TeamName, urgency: "thisWeek", ageMs: 2 * DAY }),
-  make({ repo: "paranext-core", number: 2701, title: "PT-4401 Sync activity indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
 ];
 
 const notSyncing: PrRecord[] = [
-  make({ repo: "paranext-core", number: 2701, title: "PT-4401 Sync activity indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR, syncPaused: true }),
-  make({ repo: "paranext-core", number: 2688, title: "PT-4370 Settings migration", team: "Power", urgency: "thisWeek", ageMs: 4 * DAY, lastClaimedByName: "Ira" }),
-  resolveRecord(make({ repo: "paranext-core", number: 2690, title: "PT-4371 Marker cleanup", team: "Power", urgency: "soon", ageMs: 5 * DAY }), FIXTURE_NOW - 10 * MINUTE, "review by Katherine"),
-  resolveRecord(make({ repo: "paratext-assistant", number: 88, title: "PT-4390 Assistant streaming errors", team: "Simple", urgency: "soon", ageMs: 2 * DAY }), FIXTURE_NOW - 25 * MINUTE, "cleared by Jolie"),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR, syncPaused: true }),
+  make({ repo: "paranext-core", number: 2688, title: "PT-9006 Theme preference import", team: "Power", urgency: "thisWeek", ageMs: 4 * DAY, lastClaimedByName: "Ira" }),
+  resolveRecord(make({ repo: "paranext-core", number: 2690, title: "PT-9007 Footnote caller spacing", team: "Power", urgency: "soon", ageMs: 5 * DAY }), FIXTURE_NOW - 10 * MINUTE, "review by Katherine"),
+  resolveRecord(make({ repo: "example-extension", number: 88, title: "PT-9008 Retry banner wording", team: "Simple", urgency: "soon", ageMs: 2 * DAY }), FIXTURE_NOW - 25 * MINUTE, "cleared by Jolie"),
 ];
 
 const atCapacity: PrRecord[] = Array.from({ length: 31 }, (_, i) =>
   make({
     repo: "paranext-core",
     number: 2600 + i,
-    title: `PT-${4300 + i} A change with a realistically long descriptive title`,
+    title: `PT-${9100 + i} A change with a realistically long descriptive title`,
     team: i % 2 === 0 ? "Power" : "Simple",
     urgency: i === 30 ? "blocking" : "thisWeek",
     ageMs: i === 30 ? 90 * MINUTE : (31 - i) * DAY,

@@ -7,7 +7,7 @@ Every `/health` command below needs the shared secret set in `docs/setup.md`
 step 11 — export it first:
 
 ```bash
-export HEALTH_TOKEN=<the value you set with `wrangler secret put HEALTH_TOKEN`>
+export HEALTH_TOKEN=<the `HEALTH_TOKEN` GitHub secret's value, from the team password manager>
 ```
 
 A 404 from `/health` means the Worker has no `HEALTH_TOKEN` set at all; a 401
@@ -17,10 +17,10 @@ means yours does not match it.
 
 `GET /stats` returns anonymous weekly figures, oldest week first, each with a
 `rolling4` version over the 4 weeks ending there. It needs its own secret
-(`wrangler secret put STATS_TOKEN`, `docs/setup.md` step 11):
+(the `STATS_TOKEN` secret, `docs/setup.md` step 11):
 
 ```bash
-export STATS_TOKEN=<the value you set with `wrangler secret put STATS_TOKEN`>
+export STATS_TOKEN=<the `STATS_TOKEN` GitHub secret's value, from the team password manager>
 curl -s -H "Authorization: Bearer $STATS_TOKEN" \
   "https://<worker>/stats?weeks=12" | jq .
 ```
@@ -34,8 +34,7 @@ hours after it closes. Stats start with the first full week after deploy
 returns `weeks: []` for up to two weeks, and asking for more weeks than exist
 returns fewer rows. `/review-stats` in Discord shows the same data privately.
 
-After a deploy that adds a slash command, re-run `npm run register-commands`
-(`docs/setup.md` step 15). The tick report logs `statsFolded`, the number of
+Deploy registers slash commands itself (`docs/setup.md` step 15). The tick report logs `statsFolded`, the number of
 pending entries folded into weekly totals that tick.
 
 **Rollback warning.** Review stats moved the store to schema version 7. Once a
@@ -138,11 +137,16 @@ the error.
 |---|---|---|
 | `DISCORD_BOT_TOKEN` | Bot goes fully offline: no message posts, no reads, no interaction responses | Immediate — you'll notice on the next tick |
 | `DISCORD_PUBLIC_KEY` | `/interactions` starts rejecting every request with 401 | Immediate |
-| `GITHUB_APP_PRIVATE_KEY` | `paranext`-owned repos stop syncing (`credentials.app.failedClosed`) | **Key age, tracked by hand below — not by `/health`** |
-| `GITHUB_PUBLIC_TOKEN` | Non-`paranext` repos (any other owner) stop syncing | Token expiry date, tracked by hand below |
+| `GH_APP_PRIVATE_KEY` | `paranext`-owned repos stop syncing (`credentials.app.failedClosed`) | **Key age, tracked by hand below — not by `/health`** |
+| `GH_PUBLIC_TOKEN` | Non-`paranext` repos (any other owner) stop syncing | Token expiry date, tracked by hand below |
 
-To rotate any secret: `wrangler secret put <NAME>`, then redeploy
-(`npm run deploy`) so the running instance picks it up.
+To rotate any secret: update the GitHub secret in the `production`
+environment, then re-run Deploy (Actions → Deploy → Run workflow).
+
+On an existing Worker, the secrets upload publishes a new version of the old
+code with the new secret values before `deploy` runs. A failed deploy
+therefore leaves the old code running with the new secrets. Re-running Deploy
+fixes it.
 
 **The number to watch for the GitHub App is the private key's age, not any
 token expiry `/health` reports.** `/health`'s
@@ -158,7 +162,7 @@ endpoint.**
 
 - **GitHub App private key created/last rotated:** _(fill in on first
   deploy — see `docs/setup.md` step 6)_
-- **`GITHUB_PUBLIC_TOKEN` expiry date:** _(fill in on first deploy — see
+- **`GH_PUBLIC_TOKEN` expiry date:** _(fill in on first deploy — see
   `docs/setup.md` step 8)_
 
 ## Adding a team

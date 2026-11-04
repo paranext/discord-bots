@@ -2,7 +2,7 @@
 
 exports[`fixture scenarios > matches the stored snapshot for 'capacity' 1`] = `
 {
-  "bodyHash": "2dc7d4f0",
+  "bodyHash": "f74ee014",
   "components": [
     {
       "components": [
@@ -11,102 +11,102 @@ exports[`fixture scenarios > matches the stored snapshot for 'capacity' 1`] = `
           "options": [
             {
               "description": "paranext-core#2630 · Power",
-              "label": "🔥 PT-4330 A change with a realistically long descriptive title",
+              "label": "🔥 PT-9130 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2630:1788186600000",
             },
             {
               "description": "paranext-core#2600 · Power",
-              "label": "🧊 PT-4300 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9100 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2600:1785513600000",
             },
             {
               "description": "paranext-core#2602 · Power",
-              "label": "🧊 PT-4302 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9102 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2602:1785686400000",
             },
             {
               "description": "paranext-core#2604 · Power",
-              "label": "🧊 PT-4304 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9104 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2604:1785859200000",
             },
             {
               "description": "paranext-core#2606 · Power",
-              "label": "🧊 PT-4306 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9106 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2606:1786032000000",
             },
             {
               "description": "paranext-core#2608 · Power",
-              "label": "🧊 PT-4308 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9108 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2608:1786204800000",
             },
             {
               "description": "paranext-core#2610 · Power",
-              "label": "🧊 PT-4310 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9110 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2610:1786377600000",
             },
             {
               "description": "paranext-core#2612 · Power",
-              "label": "🧊 PT-4312 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9112 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2612:1786550400000",
             },
             {
               "description": "paranext-core#2614 · Power",
-              "label": "🧊 PT-4314 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9114 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2614:1786723200000",
             },
             {
               "description": "paranext-core#2616 · Power",
-              "label": "🧊 PT-4316 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9116 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2616:1786896000000",
             },
             {
               "description": "paranext-core#2618 · Power",
-              "label": "🧊 PT-4318 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9118 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2618:1787068800000",
             },
             {
               "description": "paranext-core#2601 · Simple",
-              "label": "🧊 PT-4301 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9101 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2601:1785600000000",
             },
             {
               "description": "paranext-core#2603 · Simple",
-              "label": "🧊 PT-4303 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9103 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2603:1785772800000",
             },
             {
               "description": "paranext-core#2605 · Simple",
-              "label": "🧊 PT-4305 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9105 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2605:1785945600000",
             },
             {
               "description": "paranext-core#2607 · Simple",
-              "label": "🧊 PT-4307 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9107 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2607:1786118400000",
             },
             {
               "description": "paranext-core#2609 · Simple",
-              "label": "🧊 PT-4309 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9109 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2609:1786291200000",
             },
             {
               "description": "paranext-core#2611 · Simple",
-              "label": "🧊 PT-4311 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9111 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2611:1786464000000",
             },
             {
               "description": "paranext-core#2613 · Simple",
-              "label": "🧊 PT-4313 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9113 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2613:1786636800000",
             },
             {
               "description": "paranext-core#2615 · Simple",
-              "label": "🧊 PT-4315 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9115 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2615:1786809600000",
             },
             {
               "description": "paranext-core#2617 · Simple",
-              "label": "🧊 PT-4317 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9117 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2617:1786982400000",
             },
           ],
@@ -123,102 +123,102 @@ exports[`fixture scenarios > matches the stored snapshot for 'capacity' 1`] = `
           "options": [
             {
               "description": "paranext-core#2630 · Power",
-              "label": "🔥 PT-4330 A change with a realistically long descriptive title",
+              "label": "🔥 PT-9130 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2630:1788186600000",
             },
             {
               "description": "paranext-core#2600 · Power",
-              "label": "🧊 PT-4300 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9100 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2600:1785513600000",
             },
             {
               "description": "paranext-core#2602 · Power",
-              "label": "🧊 PT-4302 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9102 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2602:1785686400000",
             },
             {
               "description": "paranext-core#2604 · Power",
-              "label": "🧊 PT-4304 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9104 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2604:1785859200000",
             },
             {
               "description": "paranext-core#2606 · Power",
-              "label": "🧊 PT-4306 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9106 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2606:1786032000000",
             },
             {
               "description": "paranext-core#2608 · Power",
-              "label": "🧊 PT-4308 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9108 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2608:1786204800000",
             },
             {
               "description": "paranext-core#2610 · Power",
-              "label": "🧊 PT-4310 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9110 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2610:1786377600000",
             },
             {
               "description": "paranext-core#2612 · Power",
-              "label": "🧊 PT-4312 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9112 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2612:1786550400000",
             },
             {
               "description": "paranext-core#2614 · Power",
-              "label": "🧊 PT-4314 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9114 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2614:1786723200000",
             },
             {
               "description": "paranext-core#2616 · Power",
-              "label": "🧊 PT-4316 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9116 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2616:1786896000000",
             },
             {
               "description": "paranext-core#2618 · Power",
-              "label": "🧊 PT-4318 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9118 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2618:1787068800000",
             },
             {
               "description": "paranext-core#2601 · Simple",
-              "label": "🧊 PT-4301 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9101 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2601:1785600000000",
             },
             {
               "description": "paranext-core#2603 · Simple",
-              "label": "🧊 PT-4303 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9103 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2603:1785772800000",
             },
             {
               "description": "paranext-core#2605 · Simple",
-              "label": "🧊 PT-4305 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9105 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2605:1785945600000",
             },
             {
               "description": "paranext-core#2607 · Simple",
-              "label": "🧊 PT-4307 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9107 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2607:1786118400000",
             },
             {
               "description": "paranext-core#2609 · Simple",
-              "label": "🧊 PT-4309 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9109 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2609:1786291200000",
             },
             {
               "description": "paranext-core#2611 · Simple",
-              "label": "🧊 PT-4311 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9111 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2611:1786464000000",
             },
             {
               "description": "paranext-core#2613 · Simple",
-              "label": "🧊 PT-4313 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9113 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2613:1786636800000",
             },
             {
               "description": "paranext-core#2615 · Simple",
-              "label": "🧊 PT-4315 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9115 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2615:1786809600000",
             },
             {
               "description": "paranext-core#2617 · Simple",
-              "label": "🧊 PT-4317 A change with a realistically long descriptive title",
+              "label": "🧊 PT-9117 A change with a realistically long descriptive title",
               "value": "paranext/paranext-core/2617:1786982400000",
             },
           ],
@@ -235,47 +235,47 @@ exports[`fixture scenarios > matches the stored snapshot for 'capacity' 1`] = `
       "color": 5793266,
       "description": "**Needs review** · 31 open · updated <t:1788192000:R>
 __Power__
-🔥 Blocking · [PT-4330 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2630) · <t:1788186600:R>
+🔥 Blocking · [PT-9130 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2630) · <t:1788186600:R>
      paranext-core#2630
      _blocks the release branch cut_
-🧊 This week · [PT-4300 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2600) · <t:1785513600:R>
+🧊 This week · [PT-9100 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2600) · <t:1785513600:R>
      paranext-core#2600
-🧊 This week · [PT-4302 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2602) · <t:1785686400:R>
+🧊 This week · [PT-9102 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2602) · <t:1785686400:R>
      paranext-core#2602
-🧊 This week · [PT-4304 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2604) · <t:1785859200:R>
+🧊 This week · [PT-9104 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2604) · <t:1785859200:R>
      paranext-core#2604
-🧊 This week · [PT-4306 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2606) · <t:1786032000:R>
+🧊 This week · [PT-9106 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2606) · <t:1786032000:R>
      paranext-core#2606
-🧊 This week · [PT-4308 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2608) · <t:1786204800:R>
+🧊 This week · [PT-9108 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2608) · <t:1786204800:R>
      paranext-core#2608
-🧊 This week · [PT-4310 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2610) · <t:1786377600:R>
+🧊 This week · [PT-9110 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2610) · <t:1786377600:R>
      paranext-core#2610
-🧊 This week · [PT-4312 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2612) · <t:1786550400:R>
+🧊 This week · [PT-9112 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2612) · <t:1786550400:R>
      paranext-core#2612
-🧊 This week · [PT-4314 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2614) · <t:1786723200:R>
+🧊 This week · [PT-9114 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2614) · <t:1786723200:R>
      paranext-core#2614
-🧊 This week · [PT-4316 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2616) · <t:1786896000:R>
+🧊 This week · [PT-9116 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2616) · <t:1786896000:R>
      paranext-core#2616
-🧊 This week · [PT-4318 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2618) · <t:1787068800:R>
+🧊 This week · [PT-9118 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2618) · <t:1787068800:R>
      paranext-core#2618
 __Simple__
-🧊 This week · [PT-4301 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2601) · <t:1785600000:R>
+🧊 This week · [PT-9101 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2601) · <t:1785600000:R>
      paranext-core#2601
-🧊 This week · [PT-4303 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2603) · <t:1785772800:R>
+🧊 This week · [PT-9103 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2603) · <t:1785772800:R>
      paranext-core#2603
-🧊 This week · [PT-4305 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2605) · <t:1785945600:R>
+🧊 This week · [PT-9105 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2605) · <t:1785945600:R>
      paranext-core#2605
-🧊 This week · [PT-4307 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2607) · <t:1786118400:R>
+🧊 This week · [PT-9107 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2607) · <t:1786118400:R>
      paranext-core#2607
-🧊 This week · [PT-4309 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2609) · <t:1786291200:R>
+🧊 This week · [PT-9109 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2609) · <t:1786291200:R>
      paranext-core#2609
-🧊 This week · [PT-4311 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2611) · <t:1786464000:R>
+🧊 This week · [PT-9111 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2611) · <t:1786464000:R>
      paranext-core#2611
-🧊 This week · [PT-4313 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2613) · <t:1786636800:R>
+🧊 This week · [PT-9113 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2613) · <t:1786636800:R>
      paranext-core#2613
-🧊 This week · [PT-4315 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2615) · <t:1786809600:R>
+🧊 This week · [PT-9115 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2615) · <t:1786809600:R>
      paranext-core#2615
-🧊 This week · [PT-4317 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2617) · <t:1786982400:R>
+🧊 This week · [PT-9117 A change with a realistically long descriptive title](https://github.com/paranext/paranext-core/pull/2617) · <t:1786982400:R>
      paranext-core#2617
 _…and 11 more. Use \`/review-list\` to see everything._",
     },
@@ -320,7 +320,7 @@ exports[`fixture scenarios > matches the stored snapshot for 'never-synced' 1`] 
 
 exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
 {
-  "bodyHash": "6cd05bac",
+  "bodyHash": "8b7a25bd",
   "components": [
     {
       "components": [
@@ -328,28 +328,28 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
           "custom_id": "digest:claim",
           "options": [
             {
-              "description": "paratext-10-studio#177 · Power",
-              "label": "🔥 PT-4398 P10 backend sync-activity signal",
-              "value": "paranext/paratext-10-studio/177:1787932800000",
+              "description": "example-extension#177 · Power",
+              "label": "🔥 PT-9001 P10 backend progress events",
+              "value": "paranext/example-extension/177:1787932800000",
             },
             {
               "description": "paranext-core#2701 · Power",
-              "label": "PT-4401 Sync activity indicator",
+              "label": "PT-9002 Toolbar progress indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
               "description": "paranext-core#2695 · Simple",
-              "label": "🧊 PT-4363 Internet Settings UI Enhancements",
+              "label": "🧊 PT-9003 Internet Settings UI Enhancements",
               "value": "paranext/paranext-core/2695:1787500800000",
             },
             {
               "description": "held by Katherine · paranext-core#3408 · Power",
-              "label": "👀 🔥 PT-3408 Collapse extra spaces in Find queries",
+              "label": "👀 🔥 PT-9009 Normalize whitespace in search input",
               "value": "paranext/paranext-core/3408:1788019200000",
             },
             {
               "description": "held by Ira · paranext-core#4325 · Simple",
-              "label": "👀 PT-4325 Registration Needed Dot",
+              "label": "👀 PT-9004 Unsaved changes badge",
               "value": "paranext/paranext-core/4325:1788105600000",
             },
           ],
@@ -365,28 +365,28 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
           "custom_id": "digest:resolve",
           "options": [
             {
-              "description": "paratext-10-studio#177 · Power",
-              "label": "🔥 PT-4398 P10 backend sync-activity signal",
-              "value": "paranext/paratext-10-studio/177:1787932800000",
+              "description": "example-extension#177 · Power",
+              "label": "🔥 PT-9001 P10 backend progress events",
+              "value": "paranext/example-extension/177:1787932800000",
             },
             {
               "description": "paranext-core#2701 · Power",
-              "label": "PT-4401 Sync activity indicator",
+              "label": "PT-9002 Toolbar progress indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
               "description": "paranext-core#2695 · Simple",
-              "label": "🧊 PT-4363 Internet Settings UI Enhancements",
+              "label": "🧊 PT-9003 Internet Settings UI Enhancements",
               "value": "paranext/paranext-core/2695:1787500800000",
             },
             {
               "description": "paranext-core#3408 · Power",
-              "label": "🔥 PT-3408 Collapse extra spaces in Find queries",
+              "label": "🔥 PT-9009 Normalize whitespace in search input",
               "value": "paranext/paranext-core/3408:1788019200000",
             },
             {
               "description": "paranext-core#4325 · Simple",
-              "label": "PT-4325 Registration Needed Dot",
+              "label": "PT-9004 Unsaved changes badge",
               "value": "paranext/paranext-core/4325:1788105600000",
             },
           ],
@@ -403,17 +403,17 @@ exports[`fixture scenarios > matches the stored snapshot for 'ordinary' 1`] = `
       "color": 5793266,
       "description": "**Needs review** · 5 open · updated <t:1788192000:R>
 __Power__
-🔥 Blocking · [PT-4398 P10 backend sync-activity signal](https://github.com/paranext/paratext-10-studio/pull/177) · <t:1787932800:R>
-     paratext-10-studio#177
+🔥 Blocking · [PT-9001 P10 backend progress events](https://github.com/paranext/example-extension/pull/177) · <t:1787932800:R>
+     example-extension#177
      _needs a P10 build before Thursday's demo_
-Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
+Soon · [PT-9002 Toolbar progress indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
      paranext-core#2701
 __Simple__
-🧊 This week · [PT-4363 Internet Settings UI Enhancements](https://github.com/paranext/paranext-core/pull/2695) · <t:1787500800:R>
+🧊 This week · [PT-9003 Internet Settings UI Enhancements](https://github.com/paranext/paranext-core/pull/2695) · <t:1787500800:R>
      paranext-core#2695 · draft
 **Being reviewed** (2)
-👀 [PT-3408 Collapse extra spaces in Find queries](https://github.com/paranext/paranext-core/pull/3408) · Katherine · 🔥 Power
-👀 [PT-4325 Registration Needed Dot](https://github.com/paranext/paranext-core/pull/4325) · Ira · Simple",
+👀 [PT-9009 Normalize whitespace in search input](https://github.com/paranext/paranext-core/pull/3408) · Katherine · 🔥 Power
+👀 [PT-9004 Unsaved changes badge](https://github.com/paranext/paranext-core/pull/4325) · Ira · Simple",
     },
   ],
   "openCount": 5,
@@ -423,7 +423,7 @@ __Simple__
 
 exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
 {
-  "bodyHash": "a129e40e",
+  "bodyHash": "bf6baeaa",
   "components": [
     {
       "components": [
@@ -432,12 +432,12 @@ exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
           "options": [
             {
               "description": "paranext-core#2701 · Power",
-              "label": "PT-4401 Sync activity indicator",
+              "label": "PT-9002 Toolbar progress indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
               "description": "paranext-core#2688 · Power",
-              "label": "🧊 PT-4370 Settings migration",
+              "label": "🧊 PT-9006 Theme preference import",
               "value": "paranext/paranext-core/2688:1787846400000",
             },
           ],
@@ -454,23 +454,23 @@ exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
           "options": [
             {
               "description": "paranext-core#2701 · Power",
-              "label": "PT-4401 Sync activity indicator",
+              "label": "PT-9002 Toolbar progress indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
               "description": "paranext-core#2688 · Power",
-              "label": "🧊 PT-4370 Settings migration",
+              "label": "🧊 PT-9006 Theme preference import",
               "value": "paranext/paranext-core/2688:1787846400000",
             },
             {
               "description": "reopen · review by Katherine",
-              "label": "↩︎ PT-4371 Marker cleanup",
+              "label": "↩︎ PT-9007 Footnote caller spacing",
               "value": "reopen:paranext/paranext-core/2690:1787760000000",
             },
             {
               "description": "reopen · cleared by Jolie",
-              "label": "↩︎ PT-4390 Assistant streaming errors",
-              "value": "reopen:paranext/paratext-assistant/88:1788019200000",
+              "label": "↩︎ PT-9008 Retry banner wording",
+              "value": "reopen:paranext/example-extension/88:1788019200000",
             },
           ],
           "placeholder": "Resolve",
@@ -487,13 +487,13 @@ exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
       "description": "⚠️ **Not syncing.** Last successful sync <t:1788189180:R>. Rows below may be out of date.
 **Needs review** · 2 open
 __Power__
-Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
+Soon · [PT-9002 Toolbar progress indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
      paranext-core#2701 · sync paused
-🧊 This week · [PT-4370 Settings migration](https://github.com/paranext/paranext-core/pull/2688) · <t:1787846400:R>
+🧊 This week · [PT-9006 Theme preference import](https://github.com/paranext/paranext-core/pull/2688) · <t:1787846400:R>
      paranext-core#2688 · previously claimed
 Recently cleared
 paranext-core#2690 — review by Katherine · <t:1788191400:R>
-paratext-assistant#88 — cleared by Jolie · <t:1788190500:R>",
+example-extension#88 — cleared by Jolie · <t:1788190500:R>",
     },
   ],
   "openCount": 2,
@@ -503,7 +503,7 @@ paratext-assistant#88 — cleared by Jolie · <t:1788190500:R>",
 
 exports[`fixture scenarios > matches the stored snapshot for 'triage' 1`] = `
 {
-  "bodyHash": "10c9101d",
+  "bodyHash": "71e15acb",
   "components": [
     {
       "components": [
@@ -512,17 +512,17 @@ exports[`fixture scenarios > matches the stored snapshot for 'triage' 1`] = `
           "options": [
             {
               "description": "paranext-core#2701 · Power",
-              "label": "PT-4401 Sync activity indicator",
+              "label": "PT-9002 Toolbar progress indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
-              "description": "paratext-10-studio#177 · Retired",
-              "label": "🔥 PT-4398 P10 backend sync-activity signal",
-              "value": "paranext/paratext-10-studio/177:1787932800000",
+              "description": "example-extension#177 · Retired",
+              "label": "🔥 PT-9001 P10 backend progress events",
+              "value": "paranext/example-extension/177:1787932800000",
             },
             {
               "description": "paranext-core#2708 · Retired",
-              "label": "PT-4412 Registration dot placement",
+              "label": "PT-9005 Badge alignment in narrow panels",
               "value": "paranext/paranext-core/2708:1788105600000",
             },
             {
@@ -544,17 +544,17 @@ exports[`fixture scenarios > matches the stored snapshot for 'triage' 1`] = `
           "options": [
             {
               "description": "paranext-core#2701 · Power",
-              "label": "PT-4401 Sync activity indicator",
+              "label": "PT-9002 Toolbar progress indicator",
               "value": "paranext/paranext-core/2701:1788170400000",
             },
             {
-              "description": "paratext-10-studio#177 · Retired",
-              "label": "🔥 PT-4398 P10 backend sync-activity signal",
-              "value": "paranext/paratext-10-studio/177:1787932800000",
+              "description": "example-extension#177 · Retired",
+              "label": "🔥 PT-9001 P10 backend progress events",
+              "value": "paranext/example-extension/177:1787932800000",
             },
             {
               "description": "paranext-core#2708 · Retired",
-              "label": "PT-4412 Registration dot placement",
+              "label": "PT-9005 Badge alignment in narrow panels",
               "value": "paranext/paranext-core/2708:1788105600000",
             },
             {
@@ -576,12 +576,12 @@ exports[`fixture scenarios > matches the stored snapshot for 'triage' 1`] = `
       "color": 5793266,
       "description": "**Needs review** · 4 open · updated <t:1788192000:R>
 __Power__
-Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
+Soon · [PT-9002 Toolbar progress indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
      paranext-core#2701
 **Needs triage**
-🔥 Blocking · [PT-4398 P10 backend sync-activity signal](https://github.com/paranext/paratext-10-studio/pull/177) · <t:1787932800:R>
-     paratext-10-studio#177
-Soon · [PT-4412 Registration dot placement](https://github.com/paranext/paranext-core/pull/2708) · <t:1788105600:R>
+🔥 Blocking · [PT-9001 P10 backend progress events](https://github.com/paranext/example-extension/pull/177) · <t:1787932800:R>
+     example-extension#177
+Soon · [PT-9005 Badge alignment in narrow panels](https://github.com/paranext/paranext-core/pull/2708) · <t:1788105600:R>
      paranext-core#2708
 🧊 This week · [Fix marker parsing for \\fig](https://github.com/eten-tech-foundation/scripture-editors/pull/341) · <t:1788019200:R>
      scripture-editors#341",

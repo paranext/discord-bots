@@ -1,5 +1,7 @@
 # PR Review Bot — Tracking Half Implementation Plan
 
+> Example repository names, PR titles and Jira keys in this document were anonymized for the public repository.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the tracking half of the PR review bot — a pinned "Needs review" digest that stays accurate on its own, fed by channel scanning and GitHub review events — deployable in shadow mode without anyone changing how they work.
@@ -25,7 +27,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Coverage gate on `core/`** — 95% lines/branches. Adapters: 70%.
 - **A 401 from any credential fails closed** for that credential group and stops retrying. 10,000 invalid responses in 10 minutes risks a temporary IP ban.
 - **Config lives in `config/config.ts`**, typed and checked in, so changes are reviewable one-line PRs. Secrets never appear there.
-- Repo allowlist initial value: `paranext/paranext-core`, `paranext/paratext-10-studio`, `paranext/paratext-assistant`, `paranext/paratext-bible-extensions`, `paranext/paratext-bible-internal-extensions`, `eten-tech-foundation/scripture-editors`.
+- Repo allowlist initial value: `paranext/paranext-core`, `paranext/example-extension`, `paranext/paratext-bible-extensions`, `eten-tech-foundation/scripture-editors`.
 - Urgency levels: `🔥 Blocking` (requires a note), `Soon` (no icon), `🧊 This week`. Teams: `Power`, `Simple`, `General`. Refresh interval 5 minutes; stale-claim threshold 2 days; recently-cleared window 1 hour; stale-banner threshold 30 minutes; retention 30 days.
 
 ---
@@ -256,10 +258,8 @@ export const config: Config = {
   prdForumChannelId: "REPLACE_WITH_PRD_FORUM_ID",
   repoAllowlist: [
     "paranext/paranext-core",
-    "paranext/paratext-10-studio",
-    "paranext/paratext-assistant",
+    "paranext/example-extension",
     "paranext/paratext-bible-extensions",
-    "paranext/paratext-bible-internal-extensions",
     "eten-tech-foundation/scripture-editors",
   ],
   teams: ["Power", "Simple", "General"],
@@ -681,7 +681,7 @@ function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
     resolvedAt: null,
     resolvedBy: null,
     resolutionHistory: [],
-    title: "PT-4363 Internet Settings UI Enhancements",
+    title: "PT-9003 Internet Settings UI Enhancements",
     prAuthorLogin: "jolie",
     isDraft: false,
     source: "command",
@@ -784,7 +784,7 @@ describe("markRequested", () => {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0,
-      title: "PT-4363",
+      title: "PT-9003",
       prAuthorLogin: "jolie",
       isDraft: false,
     });
@@ -803,7 +803,7 @@ describe("newScannedRecord", () => {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0,
-      title: "PT-4363",
+      title: "PT-9003",
       prAuthorLogin: "jolie",
       isDraft: false,
     });
@@ -817,7 +817,7 @@ describe("newScannedRecord", () => {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0,
-      title: "PT-4363",
+      title: "PT-9003",
       prAuthorLogin: "jolie",
       isDraft: false,
     });
@@ -1050,7 +1050,7 @@ function record(overrides: Partial<PrRecord> = {}): PrRecord {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -1064,7 +1064,7 @@ function review(overrides: Partial<ReviewEvent> = {}): ReviewEvent {
 function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
   return {
     slug: "paranext/paranext-core/2695",
-    title: "PT-4363",
+    title: "PT-9003",
     state: "OPEN",
     merged: false,
     isDraft: false,
@@ -1217,8 +1217,8 @@ describe("applySnapshot", () => {
   });
 
   it("refreshes the cached title, draft flag and author on every sync", () => {
-    const r = applySnapshot(record(), snapshot({ title: "PT-4363 renamed", isDraft: true, authorLogin: "ira" }), NOW);
-    expect(r.title).toBe("PT-4363 renamed");
+    const r = applySnapshot(record(), snapshot({ title: "PT-9003 renamed", isDraft: true, authorLogin: "ira" }), NOW);
+    expect(r.title).toBe("PT-9003 renamed");
     expect(r.isDraft).toBe(true);
     expect(r.prAuthorLogin).toBe("ira");
     expect(r.lastSyncedAt).toBe(NOW);
@@ -1559,7 +1559,7 @@ function record(overrides: Partial<PrRecord> = {}): PrRecord {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -1768,7 +1768,7 @@ The rule this task exists to enforce: **the visible set and the actionable set a
   - `interface MenuOption { label: string; value: string; description: string }`
   - `function encodeOptionValue(r: PrRecord): string` and `function decodeOptionValue(v: string): { id: string; lastRequestedAt: number } | null`
 
-`encodeOptionValue` carries `lastRequestedAt` so Task 18 can detect a stale selection. Discord caps a select option `value` at 100 characters, and `paranext/paranext-bible-internal-extensions/12345:1756000000000` is 62 — inside the cap with room, which is why the id can travel whole rather than hashed.
+`encodeOptionValue` carries `lastRequestedAt` so Task 18 can detect a stale selection. Discord caps a select option `value` at 100 characters, and `paranext/example-extension/12345:1756000000000` is 46 — inside the cap with room, which is why the id can travel whole rather than hashed.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2784,11 +2784,11 @@ const T0 = 1_756_000_000_000;
 
 function rec(overrides: Partial<PrRecord> = {}): PrRecord {
   const base = newScannedRecord({
-    pr: { owner: "paranext", repo: "paratext-10-studio", number: 177 },
+    pr: { owner: "paranext", repo: "example-extension", number: 177 },
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4398 P10 backend sync-activity signal",
+    title: "PT-9001 P10 backend progress events",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -2809,12 +2809,12 @@ describe("renderRequestMessage", () => {
   it("keeps the bare url alone on its own line so GitHub's unfurl renders", () => {
     const lines = renderRequestMessage(rec(), baseConfig).split("\n");
     const urlLine = lines.find((l) => l.includes("github.com"));
-    expect(urlLine).toBe("https://github.com/paranext/paratext-10-studio/pull/177");
+    expect(urlLine).toBe("https://github.com/paranext/example-extension/pull/177");
   });
 
   it("leads with urgency as emoji plus words, then team, then title", () => {
     expect(renderRequestMessage(rec(), baseConfig).split("\n")[0]).toBe(
-      "🔥 **Blocking** · power · PT-4398 P10 backend sync-activity signal",
+      "🔥 **Blocking** · power · PT-9001 P10 backend progress events",
     );
   });
 
@@ -3151,33 +3151,33 @@ export function make(input: MakeInput): PrRecord {
 }
 
 const ordinaryDay: PrRecord[] = [
-  make({ repo: "paratext-10-studio", number: 177, title: "PT-4398 P10 backend sync-activity signal", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo", prdThreadId: "t-trust" }),
-  make({ repo: "paranext-core", number: 2701, title: "PT-4401 Sync activity indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
-  make({ repo: "paranext-core", number: 2695, title: "PT-4363 Internet Settings UI Enhancements", team: "Simple", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
-  make({ repo: "paranext-core", number: 3408, title: "PT-3408 Collapse extra spaces in Find queries", team: "Power", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),
-  make({ repo: "paranext-core", number: 4325, title: "PT-4325 Registration Needed Dot", team: "Simple", urgency: "soon", ageMs: 1 * DAY, claimedByName: "Ira" }),
+  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo", prdThreadId: "t-trust" }),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
+  make({ repo: "paranext-core", number: 2695, title: "PT-9003 Internet Settings UI Enhancements", team: "Simple", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
+  make({ repo: "paranext-core", number: 3408, title: "PT-9009 Normalize whitespace in search input", team: "Power", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),
+  make({ repo: "paranext-core", number: 4325, title: "PT-9004 Unsaved changes badge", team: "Simple", urgency: "soon", ageMs: 1 * DAY, claimedByName: "Ira" }),
 ];
 
 const shadowMode: PrRecord[] = [
-  make({ repo: "paratext-10-studio", number: 177, title: "PT-4398 P10 backend sync-activity signal", ageMs: 3 * DAY }),
-  make({ repo: "paranext-core", number: 2695, title: "PT-4363 Internet Settings UI Enhancements", ageMs: 8 * DAY }),
-  make({ repo: "paranext-core", number: 2708, title: "PT-4412 Registration dot placement", ageMs: 1 * DAY }),
+  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", ageMs: 3 * DAY }),
+  make({ repo: "paranext-core", number: 2695, title: "PT-9003 Internet Settings UI Enhancements", ageMs: 8 * DAY }),
+  make({ repo: "paranext-core", number: 2708, title: "PT-9005 Badge alignment in narrow panels", ageMs: 1 * DAY }),
   make({ owner: "eten-tech-foundation", repo: "scripture-editors", number: 341, title: "Fix marker parsing for \\fig", ageMs: 2 * DAY }),
-  make({ repo: "paratext-assistant", number: 88, title: "PT-4390 Assistant streaming errors", ageMs: 5 * HOUR }),
+  make({ repo: "example-extension", number: 88, title: "PT-9008 Retry banner wording", ageMs: 5 * HOUR }),
 ];
 
 const notSyncing: PrRecord[] = [
-  make({ repo: "paranext-core", number: 2701, title: "PT-4401 Sync activity indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR, syncPaused: true }),
-  make({ repo: "paranext-core", number: 2688, title: "PT-4370 Settings migration", team: "Power", urgency: "thisWeek", ageMs: 4 * DAY, lastClaimedByName: "Ira" }),
-  resolveRecord(make({ repo: "paranext-core", number: 2690, title: "PT-4371 Marker cleanup", team: "Power", urgency: "soon", ageMs: 5 * DAY }), FIXTURE_NOW - 10 * MINUTE, "review by Katherine"),
-  resolveRecord(make({ repo: "paratext-assistant", number: 88, title: "PT-4390 Assistant streaming errors", team: "Simple", urgency: "soon", ageMs: 2 * DAY }), FIXTURE_NOW - 25 * MINUTE, "cleared by Jolie"),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR, syncPaused: true }),
+  make({ repo: "paranext-core", number: 2688, title: "PT-9006 Theme preference import", team: "Power", urgency: "thisWeek", ageMs: 4 * DAY, lastClaimedByName: "Ira" }),
+  resolveRecord(make({ repo: "paranext-core", number: 2690, title: "PT-9007 Footnote caller spacing", team: "Power", urgency: "soon", ageMs: 5 * DAY }), FIXTURE_NOW - 10 * MINUTE, "review by Katherine"),
+  resolveRecord(make({ repo: "example-extension", number: 88, title: "PT-9008 Retry banner wording", team: "Simple", urgency: "soon", ageMs: 2 * DAY }), FIXTURE_NOW - 25 * MINUTE, "cleared by Jolie"),
 ];
 
 const atCapacity: PrRecord[] = Array.from({ length: 31 }, (_, i) =>
   make({
     repo: "paranext-core",
     number: 2600 + i,
-    title: `PT-${4300 + i} A change with a realistically long descriptive title`,
+    title: `PT-${9100 + i} A change with a realistically long descriptive title`,
     team: i % 2 === 0 ? "Power" : "Simple",
     urgency: i === 30 ? "blocking" : "thisWeek",
     ageMs: i === 30 ? 90 * MINUTE : (31 - i) * DAY,
@@ -3648,7 +3648,7 @@ function withRecord(overrides: Partial<PrRecord> = {}): StoreState {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -3664,7 +3664,7 @@ function run(state: StoreState, ...commands: Command[]) {
 function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
   return {
     slug: ID,
-    title: "PT-4363",
+    title: "PT-9003",
     state: "OPEN",
     merged: false,
     isDraft: false,
@@ -3680,7 +3680,7 @@ describe("upsertScanned", () => {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   };
@@ -3732,7 +3732,7 @@ describe("upsertRequest", () => {
       channelId: "chan",
       messageId: "msg-2",
     },
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   };
@@ -4517,7 +4517,7 @@ function seeded(): StoreState {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0 - 3 * 86_400_000,
-      title: "PT-4398 P10 backend sync-activity signal",
+      title: "PT-9001 P10 backend progress events",
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
@@ -4902,7 +4902,7 @@ describe("RecordsObject", () => {
       channelId: "chan",
       messageId: "msg",
       messageTimestamp: T0,
-      title: "PT-4398",
+      title: "PT-9001",
       prAuthorLogin: "jolie",
       isDraft: false,
     });
@@ -4911,7 +4911,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertScanned", input: {
           pr: { owner: "paranext", repo: "paranext-core", number: 177 },
           channelId: "chan", messageId: "msg", messageTimestamp: T0,
-          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false,
+          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false,
         }, now: T0 }],
       { now: T0, rerender: false },
     );
@@ -4953,7 +4953,7 @@ describe("RecordsObject", () => {
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
          fields: { team: "Power", urgency: "blocking", prdThreadId: null, note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
-         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
+         title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
     await stub.apply([{ kind: "setMeta", patch: { digestMessageId: "digest-1", lastSync: T0, lastDailyPostDate: "2026-08-31" } }], { now: T0, rerender: false });
@@ -5452,7 +5452,7 @@ function stubPagesByQuery(byParam: Record<string, DiscordMessage[]>) {
 afterEach(() => vi.unstubAllGlobals());
 
 const PR = "https://github.com/paranext/paranext-core/pull/2695";
-const OTHER = "https://github.com/paranext/paratext-10-studio/pull/177";
+const OTHER = "https://github.com/paranext/example-extension/pull/177";
 
 describe("scanChannels", () => {
   it("emits an upsertScanned command per allowlisted link", async () => {

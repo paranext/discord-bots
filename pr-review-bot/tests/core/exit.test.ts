@@ -12,7 +12,7 @@ function record(overrides: Partial<PrRecord> = {}): PrRecord {
     channelId: "chan",
     messageId: "msg",
     messageTimestamp: T0,
-    title: "PT-4363",
+    title: "PT-9003",
     prAuthorLogin: "jolie",
     isDraft: false,
   });
@@ -26,7 +26,7 @@ function review(overrides: Partial<ReviewEvent> = {}): ReviewEvent {
 function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
   return {
     slug: "paranext/paranext-core/2695",
-    title: "PT-4363",
+    title: "PT-9003",
     state: "OPEN",
     merged: false,
     isDraft: false,
@@ -282,8 +282,8 @@ describe("applySnapshotWithExit record refresh", () => {
   });
 
   it("refreshes the cached title, draft flag and author on every sync", () => {
-    const r = applySnapshotWithExit(record(), snapshot({ title: "PT-4363 renamed", isDraft: true, authorLogin: "ira" }), NOW).record;
-    expect(r.title).toBe("PT-4363 renamed");
+    const r = applySnapshotWithExit(record(), snapshot({ title: "PT-9003 renamed", isDraft: true, authorLogin: "ira" }), NOW).record;
+    expect(r.title).toBe("PT-9003 renamed");
     expect(r.isDraft).toBe(true);
     expect(r.prAuthorLogin).toBe("ira");
     expect(r.lastSyncedAt).toBe(NOW);

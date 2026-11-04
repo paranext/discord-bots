@@ -15,6 +15,16 @@ export default defineConfig({
         plugins: [
           cloudflareTest({
             wrangler: { configPath: "./wrangler.jsonc" },
+            // Stand-ins for the channel-ID Worker secrets `loadConfig` reads.
+            // They live here, not in `wrangler.jsonc`, and must never move
+            // there: anything in that file ships in the public repo and in
+            // every deploy, and the real values are deploy-specific secrets.
+            miniflare: {
+              bindings: {
+                REVIEW_CHANNEL_IDS: "100000000000000001",
+                DIGEST_CHANNEL_ID: "100000000000000001",
+              },
+            },
           }),
         ],
         test: {

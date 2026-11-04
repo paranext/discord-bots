@@ -53,7 +53,7 @@ export interface Config {
      *  problem, not untidiness. Oldest are dropped first. */
     retryStashEntries: number;
   };
-  /** Off on a CPU-capped host: the submit handler writes and returns, next tick renders. */
+  /** Off because the free plan's CPU budget can't fit an inline rewrite; the next tick renders. */
   immediateDigestRewrite: boolean;
 }
 
@@ -72,7 +72,10 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
 export const config: Config = {
+  /** Placeholders, for tests and preview only. Production values come from
+   *  `loadConfig`, which reads the Worker secrets. */
   allowedChannelIds: ["REPLACE_WITH_REVIEW_CHANNEL_ID"],
+  /** Placeholder, as above. */
   digestChannelId: "REPLACE_WITH_REVIEW_CHANNEL_ID",
   teams: ["Power", "Simple", "General"],
   urgencies: [
@@ -91,5 +94,52 @@ export const config: Config = {
   dailyPostHourLocal: 9,
   dailyPostTimeZone: "America/Chicago",
   budgets: { purgePerTick: 50, reactionReadsPerTick: 10, retryStashEntries: 50 },
-  immediateDigestRewrite: true,
+  immediateDigestRewrite: false,
 };
+
+/** The Worker bindings `loadConfig` reads. Secrets, not source: channel IDs
+ *  are deploy-specific (a fork supplies its own), so none is committed, and
+ *  a var would print them in the public deploy log. */
+export interface ChannelEnv {
+  /** Comma-separated channel IDs the bot accepts submissions from. */
+  REVIEW_CHANNEL_IDS?: string;
+  DIGEST_CHANNEL_ID?: string;
+}
+
+/** Thrown for a missing or malformed binding. Messages name the binding and
+ *  never echo its value, because the value is a secret and a bad one is often a
+ *  pasted token or the wrong secret entirely. */
+export class ConfigError extends Error {}
+
+const SNOWFLAKE = /^\d{17,20}$/;
+
+/**
+ * Merges the channel IDs from `env` into `base`. Fails loudly: a Worker with no
+ * valid channel would otherwise accept nothing and say nothing, which looks like
+ * a dead bot, not a misconfigured one.
+ */
+export function loadConfig(env: ChannelEnv, base: Config = config): Config {
+  const allowedChannelIds = (env.REVIEW_CHANNEL_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id !== "");
+  if (allowedChannelIds.length === 0) {
+    throw new ConfigError("REVIEW_CHANNEL_IDS is missing or empty");
+  }
+  if (!allowedChannelIds.every((id) => SNOWFLAKE.test(id))) {
+    throw new ConfigError("REVIEW_CHANNEL_IDS must be comma-separated Discord channel IDs");
+  }
+
+  const digestChannelId = (env.DIGEST_CHANNEL_ID ?? "").trim();
+  if (digestChannelId === "") {
+    throw new ConfigError("DIGEST_CHANNEL_ID is missing or empty");
+  }
+  if (!SNOWFLAKE.test(digestChannelId)) {
+    throw new ConfigError("DIGEST_CHANNEL_ID must be a Discord channel ID");
+  }
+  if (!allowedChannelIds.includes(digestChannelId)) {
+    throw new ConfigError("DIGEST_CHANNEL_ID must be one of the REVIEW_CHANNEL_IDS");
+  }
+
+  return { ...base, allowedChannelIds, digestChannelId };
+}

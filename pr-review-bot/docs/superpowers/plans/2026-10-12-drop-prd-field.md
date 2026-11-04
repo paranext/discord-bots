@@ -1,5 +1,7 @@
 # Drop the PRD Field Implementation Plan
 
+> Example repository names, PR titles and Jira keys in this document were anonymized for the public repository.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the PRD field, along with its private-server forum fetch and its cached thread list, so that the bot runs entirely from the public Discord server.
@@ -853,7 +855,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 2. Delete the whole section from `## Rollout stage 1: record the PRD thread fixtures` up to, but not including, `## 1. Create the Discord application`. No numbered step moves.
 
-3. In step 5, change `channel and the PRD forum (\`teamwide-epic-discussions\`). Grant only:` to `channel. Grant only:`. Then delete the paragraph that starts `The bot also needs read access to the PRD forum channel`.
+3. In step 5, change `channel and the internal PRD forum. Grant only:` to `channel. Grant only:`. Then delete the paragraph that starts `The bot also needs read access to the PRD forum channel`.
 
 4. In step 9, change `Three placeholders need real values` to `Two placeholders need real values`. Then delete the bullet `` - `prdForumChannelId` — the real PRD forum channel ID ``.
 
