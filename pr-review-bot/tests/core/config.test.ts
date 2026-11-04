@@ -23,12 +23,6 @@ describe("config", () => {
     ]);
   });
 
-  it("lists every allowlisted repo as owner/repo", () => {
-    for (const entry of config.repoAllowlist) {
-      expect(entry).toMatch(/^[\w.-]+\/[\w.-]+$/);
-    }
-  });
-
   it("keeps the digest channel among the allowed channels", () => {
     expect(config.allowedChannelIds).toContain(config.digestChannelId);
   });

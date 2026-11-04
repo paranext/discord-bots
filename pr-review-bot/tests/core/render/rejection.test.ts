@@ -15,12 +15,6 @@ function render(rejection: Parameters<typeof renderRejection>[0]["rejection"], s
 }
 
 describe("renderRejection", () => {
-  it("names the unlisted repo and points at the file that would allow it", () => {
-    const { content } = render({ reason: "not-allowlisted", slug: "someone/else" });
-    expect(content).toContain("someone/else");
-    expect(content).toContain("config/config.ts");
-  });
-
   it("shows the expected URL shape when the link is not a PR", () => {
     expect(render({ reason: "not-a-pr", detail: "is-issue" }).content).toContain(
       "https://github.com/owner/repo/pull/123",
@@ -128,7 +122,7 @@ describe("renderRejection", () => {
     // a field is added to the echo, or the headline is significantly expanded.
     const WORST_CASE_BOUND = 1645;
     const { content } = renderRejection({
-      rejection: { reason: "not-allowlisted", slug: "x".repeat(900) },
+      rejection: { reason: "not-found", slug: "x".repeat(900) },
       values: {
         url: "u".repeat(900),
         team: "t".repeat(900),

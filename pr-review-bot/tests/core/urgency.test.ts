@@ -7,7 +7,8 @@ import {
   urgencyLevel,
   urgencyText,
 } from "../../src/core/urgency.js";
-import { newScannedRecord, type PrRecord } from "../../src/core/record.js";
+import { type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 
 const T0 = 1_756_000_000_000;
 
@@ -28,7 +29,7 @@ const WITHOUT_EMOJI: UrgencyLevel = {
 };
 
 function rec(overrides: Partial<PrRecord> = {}): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number: 1 },
     channelId: "chan",
     messageId: "msg",

@@ -148,8 +148,8 @@ async function reject(
   if (key !== null && userId !== null) {
     // Guarded because the stash is a CONVENIENCE and the rejection is the
     // answer. A throw here used to escape `reject` into `finishSubmit`'s catch,
-    // which replaced a precise, offline-decided "that repo is not on the
-    // allowlist" with "the PR may already be tracked" — false, since nothing was
+    // which replaced a precise, offline-decided "that link is not a pull
+    // request" with "the PR may already be tracked" — false, since nothing was
     // recorded, and it hides the one thing the user needs to know. Falling
     // through with `stashKey = null` costs them the prefill, not the answer.
     try {

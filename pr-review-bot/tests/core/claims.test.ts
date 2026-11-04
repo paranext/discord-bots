@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyClaim, applyUnclaim, clearStaleClaim } from "../../src/core/claims.js";
-import { newScannedRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 
 const T0 = 1_756_000_000_000;
 const HOUR = 3_600_000;
@@ -8,7 +9,7 @@ const DAY = 24 * HOUR;
 const STALE = 2 * DAY;
 
 function record(overrides: Partial<PrRecord> = {}): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
     channelId: "chan",
     messageId: "msg",

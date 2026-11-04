@@ -29,7 +29,7 @@ export interface PrRecord {
 
   /** Sort key. Never changes, so re-requesting is not penalised. */
   firstRequestedAt: number;
-  /** Freshness. For a scanned record this is the scanned message's timestamp. */
+  /** Freshness. */
   lastRequestedAt: number;
   requestCount: number;
 
@@ -75,7 +75,6 @@ export interface PrRecord {
   prAuthorLogin: string | null;
   isDraft: boolean;
 
-  source: "command" | "scanned";
   lastSyncedAt: number | null;
 }
 
@@ -89,12 +88,11 @@ export interface RequestFields {
   messageId: string | null;
 }
 
-export interface NewScannedInput {
+export interface NewCommandInput {
   pr: ParsedPr;
-  channelId: string;
-  messageId: string;
-  /** The scanned MESSAGE's timestamp — not the scan time. See Task 14. */
-  messageTimestamp: number;
+  /** When /review-request ran: both request times start here. */
+  at: number;
+  fields: RequestFields;
   title: string;
   prAuthorLogin: string | null;
   isDraft: boolean;
@@ -142,7 +140,6 @@ export function markRequested(r: PrRecord, at: number, fields: RequestFields): P
   return {
     ...reopened,
     ...fields,
-    source: "command",
     lastRequestedAt: at,
     requestCount: reopened.requestCount + 1,
     // A claim from the previous round must not hide the new request.
@@ -161,20 +158,17 @@ export function markRequested(r: PrRecord, at: number, fields: RequestFields): P
   };
 }
 
-export function newScannedRecord(input: NewScannedInput): PrRecord {
+/** A first request for a PR. Starts at count 1 (`markRequested` is for a repeat
+ *  request and would make it 2), and `fields.messageId` is kept as given — null
+ *  until the request message is posted. */
+export function newCommandRecord(input: NewCommandInput): PrRecord {
   return {
     owner: input.pr.owner,
     repo: input.pr.repo,
     number: input.pr.number,
-    channelId: input.channelId,
-    messageId: input.messageId,
-    team: null,
-    urgency: null,
-    note: null,
-    requesterId: null,
-    requesterName: null,
-    firstRequestedAt: input.messageTimestamp,
-    lastRequestedAt: input.messageTimestamp,
+    ...input.fields,
+    firstRequestedAt: input.at,
+    lastRequestedAt: input.at,
     requestCount: 1,
     claimedBy: null,
     claimedByName: null,
@@ -191,7 +185,6 @@ export function newScannedRecord(input: NewScannedInput): PrRecord {
     title: input.title,
     prAuthorLogin: input.prAuthorLogin,
     isDraft: input.isDraft,
-    source: "scanned",
     lastSyncedAt: null,
   };
 }

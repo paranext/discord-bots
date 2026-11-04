@@ -31,11 +31,6 @@ function headline(rejection: SubmitRejection, config: Config): string {
         "It was not shortened for you — a truncated link can still point at a real but *different* PR. " +
         "Paste the plain `https://github.com/owner/repo/pull/123` form, without tracking parameters."
       );
-    case "not-allowlisted":
-      return (
-        `**${clamp(rejection.slug, 120)}** is not on the repo allowlist, so the bot will not track it. ` +
-        "Add it to `repoAllowlist` in `config/config.ts` — it is a one-line, reviewable change."
-      );
     case "invalid-team":
       return (
         `That team is not on the current list — pick one of: ${config.teams.join(", ")}. ` +

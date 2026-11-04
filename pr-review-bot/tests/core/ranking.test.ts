@@ -8,7 +8,8 @@ import {
   truncateRows,
   urgencyRank,
 } from "../../src/core/ranking.js";
-import { newScannedRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import type { TeamName, UrgencyKey } from "../../config/config.js";
 
 const T0 = 1_756_000_000_000;
@@ -25,7 +26,7 @@ function rec(
     claimedByName?: string | null;
   } = {},
 ): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number },
     channelId: "chan",
     messageId: `msg-${number}`,
@@ -50,7 +51,7 @@ describe("urgencyRank", () => {
     expect(urgencyRank("soon", baseConfig)).toBeLessThan(urgencyRank("thisWeek", baseConfig));
   });
 
-  it("ranks null urgency BELOW this week — every scanned row has none", () => {
+  it("ranks null urgency BELOW this week — a record with no urgency sorts last", () => {
     expect(urgencyRank(null, baseConfig)).toBeGreaterThan(urgencyRank("thisWeek", baseConfig));
   });
 

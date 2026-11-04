@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { config } from "../../config/config.js";
-import { newScannedRecord, recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import { CredentialProvider } from "../../src/github/credentials.js";
 import { handleHealth } from "../../src/handlers/health.js";
 import { emptyState } from "../../src/store/apply.js";
@@ -25,7 +26,7 @@ const publisher: DigestPublisher = {
 
 function record(number: number, overrides: Partial<PrRecord> = {}): PrRecord {
   return {
-    ...newScannedRecord({
+    ...testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number },
       channelId: "chan",
       messageId: `m-${number}`,

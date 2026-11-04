@@ -25,8 +25,7 @@ nothing else:
   (interaction type 1) so the endpoint URL can be registered in the
   Developer Portal. `/review-request`, its modal submit, and its retry button
   are all further gated on `interaction.channel_id` being in
-  `config.allowedChannelIds` (`src/handlers/interactions.ts`), matching how
-  `src/discord/scan.ts` reads the same field.
+  `config.allowedChannelIds` (`src/handlers/interactions.ts`).
 
   The spec asks a stash-expired retry to reopen an empty modal "with a note
   saying so"; `handleRetryButton` (`src/handlers/reviewRequest.ts`) instead
@@ -36,16 +35,17 @@ nothing else:
   in the message above and to run `/review-request` again.
 - **`scheduled()`** (`src/handlers/scheduled.ts`, `runTick`) — a cron trigger
   every five minutes (`wrangler.jsonc`'s `triggers.crons`). Re-syncs against
-  GitHub, scans channels for new PR links, clears stale claims, purges
+  GitHub, reads reactions for claims, clears stale claims, purges
   expired records, and rewrites the pinned digest.
 
 There is no gateway connection anywhere in this codebase. A gateway
 connection needs a persistent WebSocket and a process that stays alive to
 hold it; Cloudflare Workers don't have a "stays alive" concept, and the two
 things this bot needs from Discord — receiving interactions and reading
-channel history — are both available over plain HTTP (`POST /interactions`
-is pushed to the worker by Discord itself; channel history is pulled by the
-cron tick via `GET /channels/{id}/messages`). A gateway would buy nothing
+pins and reactions — are both available over plain HTTP (`POST /interactions`
+is pushed to the worker by Discord itself; pins and reactions are pulled by
+the cron tick). The bot never reads message content, so it needs no
+privileged intent. A gateway would buy nothing
 here and cost a component this design doesn't need to run.
 
 `GET /health` (`src/handlers/health.ts`) is a third, minor route — see
@@ -93,7 +93,7 @@ The store (`src/store/types.ts`'s `Store` interface, implemented by
 `src/store/do.ts`'s `RecordsObject` for production and
 `src/store/memory.ts`'s `MemoryStore` for tests) is not called with a
 callback. It's called with a list of `Command` values — `claim`, `resolve`,
-`upsertScanned`, `setMeta`, and so on — and returns `CommandResult` values.
+`upsertRequest`, `setMeta`, and so on — and returns `CommandResult` values.
 
 **Why commands rather than a callback:** the production store is a Cloudflare
 Durable Object, invoked over an RPC boundary (`env.RECORDS.get(id)` returns a
@@ -182,15 +182,20 @@ not grow with the list.
 
 ## Data flow: a link becomes a digest row
 
-1. Someone posts a GitHub PR link in the review channel (hand-typed, or via
-   `/review-request`).
-2. The next tick's scan step (`src/discord/scan.ts`, step 6 of the refresh
-   loop) reads new messages in the configured channel since the last cursor,
-   extracts allowlisted PR URLs (`src/core/urls.ts`), and turns each into an
-   `upsertScanned` command. The record's `lastRequestedAt` is seeded from the
-   **scanned message's timestamp**, not the scan time — this is what lets a
-   PR that was already reviewed before the bot ever saw the message resolve
-   immediately on ingest instead of becoming a permanent row.
+1. Someone runs `/review-request` in the review channel
+   (`src/handlers/reviewRequest.ts`). Any owner and repo is accepted; there is
+   no repo list. The submit parses the PR link (`parsePrUrl`,
+   `src/core/urls.ts`), checks the form fields, and looks the PR up on GitHub
+   with the credential `routeOwner` picks. A PR that is not found (a typo, or a
+   private repo the bot can't see), whose credential fails, or that is already
+   merged or closed is refused with a private message and a **Fix and retry**
+   button; nothing is written.
+2. On success the handler issues `upsertRequest` (a new record is built by
+   `newCommandRecord`, `requestCount: 1`, `lastRequestedAt` set to the request
+   time), posts the request message, then `setRequestMessageId` stores that
+   message's id (null until the post succeeds). A pasted link without the
+   command never reaches this path: nothing reads channel messages, so it is
+   not tracked.
 3. GitHub is queried per credential group (`src/github/credentials.ts` routes
    `paranext` to the GitHub App, everything else to the public token), in
    chunks of 25 PRs per GraphQL request (`src/github/query.ts` — GitHub
@@ -209,6 +214,11 @@ not grow with the list.
    compare-and-set above). A digest message it had to **create** is persisted
    immediately, before the daily post is attempted, so a rejected daily post
    cannot lose the id and cause the next tick to post a second digest.
+
+Refresh-loop step 6 is retired. It was the channel scan, which turned PR links
+found in channel history into records; `/review-request` is now the only way a
+PR gets onto the digest (see `adr-command-only-requests`). Schema version 6
+deleted the scanned records it had made.
 
 Refresh-loop step 7 is retired. It used to refresh a cached list of PRD forum
 threads for the `/review-request` modal, but that forum lived on a server the
@@ -243,9 +253,8 @@ records the set and acts on nothing. See
 | Rendering reads the committed state | `src/store/memory.ts` (`commitTick`), `src/store/do.ts` |
 | Data model | `src/core/record.ts`, `src/store/types.ts` |
 | Claiming and removal | `src/core/claims.ts`, `src/handlers/interactions.ts`, `src/core/ranking.ts` (menu population), `src/core/reactions.ts` (reaction claim/release path) |
-| Message scanning | `src/discord/scan.ts` |
 | Failure modes | `src/store/memory.ts` (`commitTick`), `src/github/credentials.ts`, `src/handlers/health.ts` |
-| Permissions and security | `src/discord/verify.ts`, `src/handlers/startup.ts`, `docs/setup.md` |
+| Permissions and security | `src/discord/verify.ts`, `docs/setup.md` |
 | Hosting constraints | `wrangler.jsonc`, `src/store/do.ts`, `config/config.ts` (`immediateDigestRewrite`) |
 | Monitoring | `src/handlers/health.ts` |
 | `/review-list` | `src/handlers/reviewList.ts` |

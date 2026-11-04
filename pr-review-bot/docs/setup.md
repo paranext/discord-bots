@@ -1,8 +1,7 @@
 # Setup runbook
 
 Follow this in order. The order is load-bearing — several steps fail
-confusingly, not loudly, if done out of sequence, and step 3 exists precisely
-because a wrong answer here produces silence rather than an error.
+confusingly, not loudly, if done out of sequence.
 
 Deployment target throughout is Cloudflare Workers (`wrangler deploy`). The
 refresh tick runs on a cron trigger every 5 minutes (`wrangler.jsonc`'s
@@ -22,83 +21,16 @@ create a new application. Record:
 - the **public key** (Bot → General Information)
 - the **bot token** (Bot → Reset Token — shown once)
 
-## 2. Enable the MESSAGE CONTENT privileged intent
+## 2. (Retired 2026-11-03) Message Content intent
 
-Bot → Privileged Gateway Intents → **Message Content Intent**. This is
-self-serve below 100 guilds; no Discord approval needed.
+The bot no longer reads message content, so the Message Content privileged
+intent stays **off**. If you're upgrading an app that has it on, turn it off
+(`docs/operations.md`, *Upgrading to schema version 6*). Step numbers below
+are not renumbered.
 
-Without this, `GET /channels/{id}/messages` returns `content: ""` for every
-message the bot did not author. Message scanning (the mechanism that finds
-PR links posted by hand) then silently extracts zero links. The bot starts
-normally, ticks normally, and reports an empty list — nothing crashes, no
-error appears in the logs beyond what step 3 below adds. This deploy refuses
-to tick at all once the runtime check (`src/handlers/startup.ts`,
-`assertMessageContentIntent`) is wired in: it logs `INTENT_MISSING` and the
-`scheduled()` handler returns before doing any work.
+## 3. (Retired 2026-11-03) Verify the intent
 
-## 3. Verify the intent actually took, against the real application
-
-**This is the most important step in this document. Do it now, before
-wiring anything else to the intent check, and do not skip it because step 2
-"looked like it worked" in the portal UI.**
-
-The two constants this bot's intent check compares against —
-`FLAG_MESSAGE_CONTENT = 1 << 18` (262144) and
-`FLAG_MESSAGE_CONTENT_LIMITED = 1 << 19` (524288), in
-`src/discord/rest.ts` — **are confirmed against Discord's documented
-application-flags table.** They are not what this step verifies.
-
-What this step verifies is that the intent from step 2 is **actually enabled
-on this application**, read back from Discord rather than from the portal UI
-you just clicked through. That is a different claim, and it has the identical
-silent-failure signature described at the bottom of this step.
-
-Keep one distinction in mind while reading `flags`: **application flags are
-not gateway intents.** The gateway intents bitfield also has a
-`MESSAGE_CONTENT`, at `1 << 15`, and the application-flags table separately
-has a `GATEWAY_GUILD_MEMBERS_LIMITED` at `1 << 15` — the same number in two
-unrelated fields, which is exactly how the wrong table gets used. This bot
-opens no gateway connection at all; it reads `flags` from
-`GET /applications/@me`, so only the application-flags table applies (see
-`docs/architecture.md`).
-
-Run this now that the app exists and the intent from step 2 is enabled:
-
-```bash
-curl -s https://discord.com/api/v10/applications/@me \
-  -H "Authorization: Bot $DISCORD_BOT_TOKEN" | jq .flags
-```
-
-Confirm bit 18 (value `262144`, i.e. `flags & 262144 !== 0`) is set. If your
-portal enabled the *limited* variant instead, confirm bit 19 (`524288`)
-instead.
-
-**If neither bit is set, the intent is not enabled on this application** —
-whatever the portal appeared to show. Go back to step 2, enable Message
-Content, save, and re-run the `curl` until one of the two bits is set. **Do
-not proceed to shadow mode** until it is. This is an operator fix in the
-Developer Portal, not a code fix: the constants are confirmed values, and
-editing them to match a `flags` that is missing the bit would only teach the
-runtime check to accept a misconfigured app.
-
-If bit 19 is the one set, the app has the *limited* variant. Scanning still
-works; the tick logs `[INTENT_LIMITED]` once per tick so the distinction is
-visible in `wrangler tail`.
-
-**Why this matters more than a typical config-value bug:** a missing bit here
-does not fail loudly. `assertMessageContentIntent` reads `flags`, finds
-neither bit set, and reports `INTENT_MISSING` — so `scheduled()` aborts
-*every single tick* before touching GitHub, the store, or Discord's message
-history. The digest simply never updates. There is no exception, no crash,
-no obviously-related log line beyond `[INTENT_MISSING] ...` scrolling past in
-`wrangler tail` alongside everything else. From the outside, this is
-**indistinguishable from a cron trigger that isn't firing, a deploy that
-didn't take, or a Durable Object binding that's misconfigured** — all of
-which look like "the channel stopped updating and nothing obviously
-crashed." An operator debugging this at 2am with no memory of this paragraph
-will spend hours checking wrangler deploys and DO bindings before thinking to
-check an intent bit that "was already verified once." It wasn't — not
-against live data, until this step runs.
+There is no intent to verify. Skip.
 
 ## 4. Install to the server
 
@@ -116,6 +48,10 @@ channel. Grant only:
 - Read Message History
 - View Channel
 
+Read Message History is still needed: the pin check
+(`listPinnedMessageIds`) gets no pins from Discord without it, so the digest
+would always look unpinned.
+
 **Do not grant** Manage Messages, and **do not grant** `PIN_MESSAGES`. The
 digest is pinned once by hand (step 13) and thereafter only edited; a bot
 editing its own message needs no pinning permission at all. Granting either
@@ -124,11 +60,10 @@ is a standing over-permission with no feature that needs it.
 ## 6. Create the GitHub App on the `paranext` org
 
 GitHub → Settings → Developer settings → GitHub Apps → New GitHub App, owned
-by the `paranext` org. Permissions: **Pull requests: read** only. Repository
-access: scoped to the repos in `config/config.ts`'s `repoAllowlist` that live
-under `paranext`.
+by the `paranext` org. Permissions: **Pull requests: read** only.
 
-Install the App on those repos. Record the **App ID** and the
+Install the App on **All repositories** in `paranext`, so new private repos
+sync with no further step. Record the **App ID** and the
 **installation ID** (visible in the install URL,
 `.../installations/<id>`).
 
@@ -150,9 +85,8 @@ the repo.
 
 ## 8. Create the public-read token
 
-For repos outside `paranext` (currently
-`eten-tech-foundation/scripture-editors`), create a GitHub personal access
-token with read-only access to public repositories, **on a shared machine
+For repos outside `paranext` (any owner can be requested), create a GitHub
+personal access token with read-only access to public repositories, **on a shared machine
 account — not a personal PAT.** A token tied to one person's account
 reintroduces exactly the single-point-of-failure dependency the org-owned
 GitHub App was chosen to avoid for `paranext`.
@@ -227,66 +161,25 @@ secret is set, `/health` answers 404** (not 401: an unset secret should not
 advertise that there is an endpoint here to guess at). Set it before step 12,
 or step 16 has nothing to read.
 
-## 12. Deploy read-only and watch three ticks
+## 12. Deploy and watch three ticks
 
 ```bash
-wrangler secret put READ_ONLY   # value: true
 npm run deploy
 wrangler tail --format pretty
 ```
 
-In this mode the tick runs the full refresh loop against live data —
-querying GitHub, scanning the real channel — and **posts nothing to Discord
-and writes no records**. It is not a total no-write: the tick releases the
-refresh lease it took, which is one `setMeta` write to the Durable Object and
-nothing else. (Without that release the first shadow tick would hold the lease
-and every tick for the next 15 minutes would be turned away.) So if you inspect
-the store to verify this step, expect `syncLease: null` and an otherwise
-untouched object — no records, no `digestMessageId`, no `lastDailyPostDate`.
+**Expected:** three consecutive ticks with `syncOk: true` in the tick
+summary and a subrequest count well under 50. With no requests yet, the
+digest is empty; that is correct.
 
-Each tick logs `[read-only] would render:` followed by the digest body it would
-have posted.
+**Do not proceed past this step until a tick has run clean.**
 
-Because this mode writes no records, it also never persists `scanCursors` or
-`scanBackfill` — there is nothing safe to advance them against. So every
-shadow tick samples the newest pages of each channel rather than backfilling
-the whole 7-day lookback window, and on a busy channel the per-tick page
-budget can truncate that sample before it reaches every message. `tick.json`
-in the log carries `scanHitPageCap: true` whenever that happened on that
-tick — that is how you see the window was truncated, since a page cap and "no
-links in this channel" otherwise look identical. This is deliberate, not a
-gap to fix: advancing the scan cursor past messages whose PRs were never
-recorded would make the live run in step 13 skip those messages entirely,
-which is a permanent loss, not a short shadow window. A page-capped shadow
-tick still proves the digest renders correctly for the rows it did see; it
-does not prove every PR in the lookback window would be caught.
+## 13. Pin the digest
 
-`READ_ONLY` is normalised before it is read, so `true`, `True`, `TRUE` and a
-value with stray whitespace all mean read-only — and so does any value that is
-not a recognised way of writing "false". Only `false` / `0` / `no` / `off` (or
-removing the secret) turns writing on. If you are unsure whether the value took,
-the tick log is the answer: shadow mode prints `[read-only] would render:` on
-every tick.
-
-**Expected:** three consecutive ticks logging `[read-only] would render:`
-with a body that matches what `npm run preview` showed for the same
-fixtures, `syncOk: true` in the tick summary, and a subrequest count well
-under 50.
-
-**Do not proceed past this step until a tick has run clean.** This is the
-last checkpoint before the bot writes anything to a real channel.
-
-## 13. Go live in shadow mode and pin the digest
-
-```bash
-wrangler secret put READ_ONLY   # value: false
-npm run deploy
-```
-
-Wait for the next tick (up to 5 minutes) to post the first real digest
-message, then **pin that message by hand** in Discord. The bot cannot pin it
-itself (see step 5 — no `PIN_MESSAGES` permission, by design) and will not
-attempt to.
+Wait for the next tick (up to 5 minutes) to post the first digest message,
+then **pin that message by hand** in Discord. The bot cannot pin it itself
+(see step 5 — no `PIN_MESSAGES` permission, by design) and will not attempt
+to.
 
 ## 14. Set the Discord interactions endpoint URL
 
@@ -298,7 +191,7 @@ signature verification, `src/discord/verify.ts`, correctly rejects it), then
 a signed `PING`, which the endpoint must answer with a `PONG` before Discord
 will accept the URL.
 
-## 15. Register `/review-list` only
+## 15. Register both commands
 
 ```bash
 DISCORD_APP_ID=... DISCORD_GUILD_ID=... DISCORD_BOT_TOKEN=... \
@@ -310,19 +203,12 @@ the same shape as `npm run preview`. (It used to be documented as
 `npx tsx …`; `tsx` is not a dependency of this repo, so that line asked npm
 to fetch a package nothing here declares.)
 
-This registers only `/review-list`. `/review-request` is built, tested, and
-ready to register, but enabling it is a separate operational decision, not a
-code change — see the next step.
+This registers `/review-list` and `/review-request`; there is no flag.
 
-Once shadow mode has met its threshold (`docs/operations.md`'s
-shadow-mode measurement log), register the command:
-
-```bash
-npm run register-commands -- --all
-```
-
-Until then, plain `npm run register-commands` continues to register only
-`/review-list`.
+Then announce it to the team, and set the channel topic (or pin a message)
+saying: "Use `/review-request` to ask for a review. Pasted links aren't
+tracked." The bot can't tell anyone a pasted link was ignored, so this note is
+how people find out.
 
 ## 16. Confirm health
 
@@ -337,6 +223,9 @@ token you sent does not match the one the Worker holds; a **405** means the
 request was not a `GET`. See
 `docs/operations.md` for what each field means and what to do if this
 returns 503 instead.
+
+Also try a `:code_review:` reaction claim once on the live server. Discord's
+docs don't say whether reading reactions needs Read Message History.
 
 ## Ongoing: track the App private key's age by hand
 

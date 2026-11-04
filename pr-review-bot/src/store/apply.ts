@@ -4,7 +4,7 @@ import { applySnapshot } from "../core/exit.js";
 import {
   isOpen,
   markRequested,
-  newScannedRecord,
+  newCommandRecord,
   recordId,
   reopenRecord,
   resolveRecord,
@@ -25,8 +25,6 @@ export function emptyState(): StoreState {
       digestBodyVersion: 0,
       unpinnedReportedAt: null,
       lastDailyPostDate: null,
-      scanCursors: {},
-      scanBackfill: {},
       syncLease: null,
       retryStash: {},
     },
@@ -49,54 +47,30 @@ function applyOne(
   config: Config,
 ): { state: StoreState; result: CommandResult } {
   switch (command.kind) {
-    case "upsertScanned": {
-      const id = prSlug(command.input.pr);
-      const existing = state.records[id];
-      if (existing === undefined) {
-        return {
-          state: { ...state, records: put(state.records, newScannedRecord(command.input)) },
-          result: { kind: "created" },
-        };
-      }
-      // A scanned link matching a resolved record is ignored rather than
-      // reopening it: conversational mentions of finished PRs are the common
-      // case, and resurrecting rows from chatter is how a list becomes untrusted.
-      if (!isOpen(existing)) return { state, result: { kind: "skipped-resolved" } };
-      return { state, result: { kind: "updated" } };
-    }
-
     case "upsertRequest": {
       const id = prSlug(command.pr);
       const existing = state.records[id];
-      const base =
-        existing ??
-        newScannedRecord({
+      if (existing === undefined) {
+        const created = newCommandRecord({
           pr: command.pr,
-          channelId: command.fields.channelId,
-          messageId: command.fields.messageId ?? "",
-          messageTimestamp: command.at,
+          at: command.at,
+          fields: command.fields,
           title: command.title,
           prAuthorLogin: command.prAuthorLogin,
           isDraft: command.isDraft,
         });
-
-      const withMeta: PrRecord = {
-        ...base,
-        title: command.title,
-        prAuthorLogin: command.prAuthorLogin,
-        isDraft: command.isDraft,
-      };
-
-      if (existing === undefined) {
-        // A brand new record has requestCount 1, not 2: newScannedRecord already
-        // starts at 1 and markRequested would increment it.
-        const created = markRequested(withMeta, command.at, command.fields);
         return {
-          state: { ...state, records: put(state.records, { ...created, requestCount: 1 }) },
+          state: { ...state, records: put(state.records, created) },
           result: { kind: "created" },
         };
       }
 
+      const withMeta: PrRecord = {
+        ...existing,
+        title: command.title,
+        prAuthorLogin: command.prAuthorLogin,
+        isDraft: command.isDraft,
+      };
       return {
         state: { ...state, records: put(state.records, markRequested(withMeta, command.at, command.fields)) },
         result: { kind: "updated" },

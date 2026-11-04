@@ -47,11 +47,10 @@ interface Interaction {
  * `/review-request`'s channel gate.
  *
  * The v1 spec documents `config.allowedChannelIds` as where the command works,
- * but before this it was read only by the scanner (`src/discord/scan.ts`) —
- * the command itself, its modal submit, and its retry button answered from any
- * channel in the guild, and `reviewRequest.ts` takes `interaction.channel_id`
- * straight into the record's `channelId`. Matches `scan.ts`'s own semantics:
- * plain membership in the list, nothing more.
+ * but nothing read it for the command itself — the command, its modal submit,
+ * and its retry button answered from any channel in the guild, and
+ * `reviewRequest.ts` takes `interaction.channel_id` straight into the record's
+ * `channelId`. Plain membership in the list, nothing more.
  */
 function isAllowedChannel(config: Config, channelId: string | undefined): boolean {
   return channelId !== undefined && config.allowedChannelIds.includes(channelId);

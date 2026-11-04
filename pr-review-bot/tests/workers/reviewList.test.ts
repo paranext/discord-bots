@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { config } from "../../config/config.js";
-import { newScannedRecord, recordId, type PrRecord } from "../../src/core/record.js";
+import { recordId, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import * as digestModule from "../../src/core/render/digest.js";
 import { renderReviewList } from "../../src/handlers/reviewList.js";
 import { emptyState } from "../../src/store/apply.js";
@@ -10,7 +11,7 @@ const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 
 function record(number: number, overrides: { title?: string } = {}): PrRecord {
   return {
-    ...newScannedRecord({
+    ...testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number },
       channelId: "c",
       messageId: `m-${number}`,

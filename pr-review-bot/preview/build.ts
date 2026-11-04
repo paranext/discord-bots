@@ -67,7 +67,6 @@ const REJECTION_VALUES: SubmittedValues = {
 const REJECTIONS: { key: string; label: string; rejection: SubmitRejection; stashKey: string | null }[] = [
   { key: "reject-not-a-pr", label: "Rejection — not-a-pr", rejection: { reason: "not-a-pr", detail: "not-a-url" }, stashKey: "stash-1" },
   { key: "reject-url-too-long", label: "Rejection — url-too-long", rejection: { reason: "url-too-long" }, stashKey: "stash-1a" },
-  { key: "reject-not-allowlisted", label: "Rejection — not-allowlisted", rejection: { reason: "not-allowlisted", slug: "paranext/some-other-repo" }, stashKey: "stash-2" },
   { key: "reject-invalid-team", label: "Rejection — invalid-team", rejection: { reason: "invalid-team" }, stashKey: "stash-2a" },
   { key: "reject-invalid-urgency", label: "Rejection — invalid-urgency", rejection: { reason: "invalid-urgency" }, stashKey: "stash-2b" },
   { key: "reject-note-required", label: "Rejection — note-required", rejection: { reason: "note-required" }, stashKey: "stash-3" },

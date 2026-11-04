@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isOpen,
   markRequested,
-  newScannedRecord,
+  newCommandRecord,
   recordId,
   reopenRecord,
   resolveRecord,
@@ -42,7 +42,6 @@ function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
     title: "PT-4363 Internet Settings UI Enhancements",
     prAuthorLogin: "jolie",
     isDraft: false,
-    source: "command",
     lastSyncedAt: T0,
     ...overrides,
   };
@@ -151,52 +150,29 @@ describe("markRequested", () => {
     expect(r.resolutionHistory).toHaveLength(1);
   });
 
-  it("upgrades a scanned record to a commanded one in place", () => {
-    const scanned = newScannedRecord({
-      pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
-      channelId: "chan",
-      messageId: "msg",
-      messageTimestamp: T0,
-      title: "PT-4363",
-      prAuthorLogin: "jolie",
-      isDraft: false,
-    });
-    const r = markRequested(scanned, T0 + HOUR, fields);
-    expect(r.source).toBe("command");
-    expect(r.team).toBe("Power");
-    expect(r.urgency).toBe("blocking");
-    expect(r.note).toBe("blocks the release cut");
-  });
 });
 
-describe("newScannedRecord", () => {
-  it("seeds lastRequestedAt from the message timestamp, not the scan time", () => {
-    const r = newScannedRecord({
-      pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
-      channelId: "chan",
-      messageId: "msg",
-      messageTimestamp: T0,
-      title: "PT-4363",
-      prAuthorLogin: "jolie",
-      isDraft: false,
-    });
-    expect(r.lastRequestedAt).toBe(T0);
-    expect(r.firstRequestedAt).toBe(T0);
-  });
+describe("newCommandRecord", () => {
+  const pr = { owner: "paranext", repo: "paranext-core", number: 2695 };
+  const fields = {
+    team: "Power" as const,
+    urgency: "blocking" as const,
+    note: "blocks the release cut",
+    requesterId: "user-2",
+    requesterName: "Ira",
+    channelId: "chan",
+    messageId: "msg-2",
+  };
 
-  it("has no team, urgency or note, because nobody supplied them", () => {
-    const r = newScannedRecord({
-      pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
-      channelId: "chan",
-      messageId: "msg",
-      messageTimestamp: T0,
-      title: "PT-4363",
-      prAuthorLogin: "jolie",
-      isDraft: false,
-    });
-    expect(r.team).toBeNull();
-    expect(r.urgency).toBeNull();
-    expect(r.note).toBeNull();
-    expect(r.source).toBe("scanned");
+  it("starts a first request at count 1, with both request times at `at`", () => {
+    const r = newCommandRecord({ pr, at: T0, fields: { ...fields, messageId: null }, title: "t", prAuthorLogin: "a", isDraft: false });
+    expect(r.requestCount).toBe(1);
+    expect(r.firstRequestedAt).toBe(T0);
+    expect(r.lastRequestedAt).toBe(T0);
+    expect(r.messageId).toBeNull();
+    expect(r.team).toBe(fields.team);
+    expect(r.claimedBy).toBeNull();
+    expect(r.lastReactors).toBeNull();
+    expect(r.resolvedAt).toBeNull();
   });
 });

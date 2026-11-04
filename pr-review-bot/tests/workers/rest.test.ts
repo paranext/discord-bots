@@ -3,8 +3,6 @@ import { config } from "../../config/config.js";
 import { SUPPRESS_EMBEDS_FLAG } from "../../src/discord/components.js";
 import {
   DiscordRest,
-  FLAG_MESSAGE_CONTENT,
-  FLAG_MESSAGE_CONTENT_LIMITED,
   makeDigestPublisher,
 } from "../../src/discord/rest.js";
 
@@ -40,36 +38,12 @@ function jsonResponse(obj: unknown): Response {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("intent flags", () => {
-  // Checked against Discord's documented values, not against themselves — the startup
-  // intent assertion (Task 19) ANDs a fixture flag against these same constants, so a
-  // self-consistent fixture there could not have caught either bit being wrong.
-  it("pins the application flag bits to their documented values", () => {
-    expect(FLAG_MESSAGE_CONTENT).toBe(262144);
-    expect(FLAG_MESSAGE_CONTENT_LIMITED).toBe(524288);
-  });
-});
-
 describe("DiscordRest", () => {
   it("sends the bot token and a User-Agent on every call", async () => {
     const calls = stubFetch([{ status: 200, json: [] }]);
-    await new DiscordRest("tok").getMessages("chan", {});
+    await new DiscordRest("tok").getPins("chan");
     expect(calls[0]!.headers.Authorization).toBe("Bot tok");
     expect(calls[0]!.headers["User-Agent"]).toContain("pr-review-bot");
-  });
-
-  it("requests messages with limit 100 and an after cursor", async () => {
-    const calls = stubFetch([{ status: 200, json: [] }]);
-    await new DiscordRest("tok").getMessages("chan", { after: "9" });
-    expect(calls[0]!.url).toContain("/channels/chan/messages?");
-    expect(calls[0]!.url).toContain("limit=100");
-    expect(calls[0]!.url).toContain("after=9");
-  });
-
-  it("requests messages before a cursor when walking backwards", async () => {
-    const calls = stubFetch([{ status: 200, json: [] }]);
-    await new DiscordRest("tok").getMessages("chan", { before: "9" });
-    expect(calls[0]!.url).toContain("before=9");
   });
 
   it("lists pins from the 2026 route, not the deprecated one", async () => {
@@ -80,7 +54,7 @@ describe("DiscordRest", () => {
 
   it("returns a typed failure rather than throwing on a non-2xx", async () => {
     stubFetch([{ status: 403, json: { message: "Missing Access" } }]);
-    const result = await new DiscordRest("tok").getMessages("chan", {});
+    const result = await new DiscordRest("tok").getPins("chan");
     expect(result).toMatchObject({ ok: false, status: 403 });
   });
 

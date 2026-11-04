@@ -5,7 +5,8 @@ import { MemoryStore } from "../../src/store/memory.js";
 import type { Command, DigestPayload, DigestPublisher, StoreState } from "../../src/store/types.js";
 import { renderDigest } from "../../src/core/render/digest.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
-import { newScannedRecord, recordId, type PrRecord } from "../../src/core/record.js";
+import { recordId, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 
 const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const MINUTE = 60_000;
@@ -36,7 +37,7 @@ function makeFakePublisher() {
 
 function seeded(): StoreState {
   const record = {
-    ...newScannedRecord({
+    ...testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 177 },
       channelId: "chan",
       messageId: "msg",
@@ -414,7 +415,7 @@ describe("lost-update ordering", () => {
     // one the tick clears and the one whose claim/unclaim returns the render.
     const day = 86_400_000;
     const build = (number: number, title: string): PrRecord => ({
-      ...newScannedRecord({
+      ...testRecord({
         pr: { owner: "paranext", repo: "paranext-core", number },
         channelId: "chan",
         messageId: `m-${number}`,
@@ -626,7 +627,7 @@ describe("lost-update ordering", () => {
 
 describe("a rejected call after the digest was created", () => {
   it("keeps digestMessageId, so the next tick edits that digest instead of posting a second one", async () => {
-    // Setup step 13: READ_ONLY goes false, digestMessageId is null, the daily
+    // Setup step 13: on the first live deploy digestMessageId is null, the daily
     // post is due, and postDaily's fetch REJECTS (connection reset) rather than
     // returning {ok: false}. If the created message's id only lived in the patch
     // commitTick returns, the throw would discard it and the next tick would

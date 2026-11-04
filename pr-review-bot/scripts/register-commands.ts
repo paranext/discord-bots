@@ -2,9 +2,6 @@
  * Registers guild-scoped commands, so they exist only in this server and updates
  * take effect immediately. Run with the app id, guild id and bot token in env.
  *
- *   npm run register-commands                 # /review-list only
- *   npm run register-commands -- --all        # adds /review-request (plan 2)
- *
  * The npm script compiles with the repo's own `tsc` and runs the emitted JS,
  * the same way `npm run preview` does. Earlier revisions of this comment said
  * `npx tsx`, which the repo has no dependency on — and adding one for a script
@@ -30,7 +27,7 @@ if (appId === undefined || guildId === undefined || token === undefined) {
   process.exit(1);
 }
 
-const commands = process.argv.includes("--all") ? [REVIEW_LIST, REVIEW_REQUEST] : [REVIEW_LIST];
+const commands = [REVIEW_LIST, REVIEW_REQUEST];
 
 const response = await fetch(`https://discord.com/api/v10/applications/${appId}/guilds/${guildId}/commands`, {
   method: "PUT",

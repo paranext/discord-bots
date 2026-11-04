@@ -15,14 +15,14 @@ Merging or closing the PR also clears its row.
 
 ## How to get on the list
 
-**During shadow mode:** nothing changes. Post a PR link in the review channel
-the way you do today, and the bot picks it up within five minutes.
+Run `/review-request` in the review channel and fill in the four fields —
+PR link, team, urgency, and a note — then submit. It works for a PR in any
+repo the bot can read. The bot posts a consistent request message and adds
+the PR to the list right away. Running the command again on a PR already on
+the list updates that entry instead of adding a second one.
 
-**Once `/review-request` is enabled:** run `/review-request` and fill in the
-four fields — PR link, team, urgency, and a note — then submit. The bot
-posts a consistent request message and adds the PR to the list right away.
-Running the command again on a PR already on the list updates that entry
-instead of adding a second one.
+**A pasted link on its own is not tracked.** The bot doesn't read channel
+messages, so a PR link posted without the command never reaches the list.
 
 If something's wrong with the submission, the rejection is private (only you
 see it), names the problem and how to fix it, and carries a **Fix and

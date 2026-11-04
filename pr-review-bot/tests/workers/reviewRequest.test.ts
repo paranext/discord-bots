@@ -206,10 +206,10 @@ describe("finishSubmit", () => {
   beforeEach(() => { store = new MemoryStore(config, publisher()); });
 
   it("does not touch GitHub when offline validation fails", async () => {
-    await finishSubmit(submission({ url: "https://github.com/someone/else/pull/1" }), deps(store));
+    await finishSubmit(submission({ url: "https://github.com/paranext/paranext-core/issues/1" }), deps(store));
     expect(githubSpy).not.toHaveBeenCalled();
     expect(Object.keys((await store.readState()).records)).toHaveLength(0);
-    expect(edited[0]?.content).toContain("not on the repo allowlist");
+    expect(edited[0]?.content).toContain("does not look like a GitHub pull request link");
   });
 
   it("stashes the values and offers a retry button on rejection", async () => {
@@ -221,7 +221,7 @@ describe("finishSubmit", () => {
   it("still shows the real rejection when the stash write fails", async () => {
     // The stash is a convenience; the rejection is the answer. A throw out of
     // the stash write used to escape `reject`, land in `finishSubmit`'s catch,
-    // and replace "that repo is not on the allowlist" with "the PR may already
+    // and replace "that link is not a pull request" with "the PR may already
     // be tracked — check /review-list", which is false: nothing was recorded,
     // and the user never learns what was actually wrong with their submission.
     const failing: Store = {
@@ -234,9 +234,9 @@ describe("finishSubmit", () => {
       readState: () => store.readState(),
     };
 
-    await finishSubmit(submission({ url: "https://github.com/someone/else/pull/1" }), deps(failing));
+    await finishSubmit(submission({ url: "https://github.com/paranext/paranext-core/issues/1" }), deps(failing));
 
-    expect(edited[0]?.content).toContain("not on the repo allowlist");
+    expect(edited[0]?.content).toContain("does not look like a GitHub pull request link");
     expect(edited[0]?.content).not.toContain("may already be tracked");
     // No stash was written, so there is nothing for a retry button to reopen.
     expect(JSON.stringify(edited[0]?.components)).not.toContain("request:retry:");
@@ -287,11 +287,28 @@ describe("finishSubmit", () => {
     expect(edited[0]?.content).not.toContain("credential");
   });
 
+  it("records a public PR from an owner that was never configured, read as that PR's own slug", async () => {
+    // `someone/else` is on no list anywhere: there is no repo or owner config to
+    // be on. Which TOKEN reads it is `routeOwner`'s call (an owner outside the
+    // App's installation goes to the public token — covered in
+    // credentials.test.ts); `fetchSnapshots` is mocked here, so what this pins is
+    // that submit hands GitHub the slug and records what comes back.
+    const other = "someone/else/1";
+    githubResult = {
+      snapshots: new Map([[other, { ...OPEN_SNAPSHOT, slug: other }]]),
+      notFound: [],
+      failedGroups: [],
+      subrequests: 1,
+    };
+    await finishSubmit(submission({ url: "https://github.com/someone/else/pull/1" }), deps(store));
+    expect(githubSpy.mock.calls[0]?.[1]).toEqual([other]);
+    expect(Object.keys((await store.readState()).records)).toEqual([other]);
+  });
+
   it("records the request, posts the message, and writes the message id back", async () => {
     await finishSubmit(submission(), deps(store));
 
     const record = (await store.readState()).records[SLUG]!;
-    expect(record.source).toBe("command");
     expect(record.messageId).toBe("posted-1");
     expect(posted[0]?.content).toContain(URL_OK);
     expect(edited[0]?.content).toContain("on the list");
@@ -317,8 +334,8 @@ describe("finishSubmit", () => {
   // The rejection echoes back the URL the user pasted, so the reply unfurls
   // whatever they typed — including a link to a repo the bot just refused.
   it("suppresses the unfurl on a rejection, which echoes the link back verbatim", async () => {
-    await finishSubmit(submission({ url: "https://github.com/someone/else/pull/1" }), deps(store));
-    expect(edited[0]?.content).toContain("not on the repo allowlist");
+    await finishSubmit(submission({ url: "https://github.com/paranext/paranext-core/issues/1" }), deps(store));
+    expect(edited[0]?.content).toContain("does not look like a GitHub pull request link");
     expect(edited[0]?.flags).toBe(EPHEMERAL_FLAG | SUPPRESS_EMBEDS_FLAG);
   });
 
@@ -336,7 +353,7 @@ describe("finishSubmit", () => {
     ]);
 
     const record = (await store.readState()).records[SLUG]!;
-    // Genuinely pins its half: `newScannedRecord` starts at 1 and
+    // Genuinely pins its half: `newCommandRecord` starts at 1 and
     // `markRequested` would increment it, so a first-time request landing at 2
     // is exactly the regression.
     expect(record.requestCount).toBe(1);

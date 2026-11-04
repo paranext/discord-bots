@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { newScannedRecord, recordId } from "../../src/core/record.js";
+import { recordId } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type DigestPayload, type DigestPublisher, type FinishTickInput, type Store, type StoreState } from "../../src/store/types.js";
 import { migrateState } from "../../src/store/schema.js";
@@ -30,7 +31,7 @@ describe("RecordsObject", () => {
     const id = env.RECORDS.idFromName("test-persist");
     const stub = env.RECORDS.get(id);
 
-    const record = newScannedRecord({
+    const record = testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 177 },
       channelId: "chan",
       messageId: "msg",
@@ -41,11 +42,11 @@ describe("RecordsObject", () => {
     });
 
     await stub.apply(
-      [{ kind: "upsertScanned", input: {
-          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
-          channelId: "chan", messageId: "msg", messageTimestamp: T0,
-          title: "PT-4398", prAuthorLogin: "jolie", isDraft: false,
-        }, now: T0 }],
+      [{ kind: "upsertRequest",
+         pr: { owner: "paranext", repo: "paranext-core", number: 177 },
+         at: T0,
+         fields: { team: "Power", urgency: "blocking", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         title: "PT-4398", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
 
@@ -622,7 +623,7 @@ describe("RecordsObject", () => {
     const id = env.RECORDS.idFromName("test-schema-migration");
     const stub = env.RECORDS.get(id);
 
-    const record = newScannedRecord({
+    const record = testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 177 },
       channelId: "chan",
       messageId: "msg",
@@ -659,8 +660,10 @@ describe("RecordsObject", () => {
     expect(loaded.meta.digestBodyHash).toBe("cafef00d");
     expect(loaded.meta.lastSync).toBe(T0);
     expect(loaded.meta.lastDailyPostDate).toBe("2026-08-31");
-    expect(loaded.meta.scanCursors).toEqual({ chan: "500" });
-    expect(loaded.meta.scanBackfill).toEqual({ chan: "400" });
+    // The scan's cursors are the one thing NOT carried forward: 5 → 6 reduces
+    // both to `{}` tombstones (see the 5 → 6 step).
+    expect((loaded.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
+    expect((loaded.meta as { scanBackfill?: unknown }).scanBackfill).toEqual({});
     // ...and the fields later versions added arrive initialised, not undefined.
     // The fixture above has no `digestBodyVersion` — version 1 did not have one
     // — so this is the 1 → 2 step doing its job. An `undefined` here would make
@@ -703,12 +706,13 @@ describe("RecordsObject", () => {
     expect(migrated.meta.retryStash).toEqual({});
     // Everything version 2 already carried survives untouched.
     expect(migrated.meta.digestBodyVersion).toBe(4);
-    expect(migrated.meta.scanCursors).toEqual({ c1: "9" });
+    // ...except the scan's cursors, which 5 → 6 reduces to their tombstone.
+    expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
   });
 
   it("migrates version 3 records to 4, priming the reaction state", () => {
     const claimed = {
-      ...newScannedRecord({
+      ...testRecord({
         pr: { owner: "paranext", repo: "paranext-core", number: 1 },
         channelId: "c",
         messageId: "m",
@@ -739,7 +743,7 @@ describe("RecordsObject", () => {
   });
 
   it("leaves claimSource null on an unclaimed record when migrating to 4", () => {
-    const open = newScannedRecord({
+    const open = testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 2 },
       channelId: "c",
       messageId: "m",
@@ -755,7 +759,7 @@ describe("RecordsObject", () => {
 
   it("migrates version 4 state to 5, removing every stored PRD value and nothing else", () => {
     const withPrd = {
-      ...newScannedRecord({
+      ...testRecord({
         pr: { owner: "paranext", repo: "paranext-core", number: 3 },
         channelId: "c",
         messageId: "m",
@@ -786,7 +790,7 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v4 as never);
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     // A tombstone, not deleted: an old-build process mid-deploy crashes on an
     // absent cache but offers only "None" for a null one.
     expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
@@ -804,7 +808,7 @@ describe("RecordsObject", () => {
 
   it("strips PRD values an old-build tick wrote back into version 5 state, on every load", () => {
     const record = {
-      ...newScannedRecord({
+      ...testRecord({
         pr: { owner: "paranext", repo: "paranext-core", number: 4 },
         channelId: "c",
         messageId: "m",
@@ -833,7 +837,7 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v5 as never);
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     expect("prdThreadId" in migrated.records["paranext/paranext-core#4"]!).toBe(false);
     expect(migrated.meta.retryStash["i-1"]!.values).toEqual({ url: "https://x", team: "Power", urgency: "soon", note: "n" });
@@ -844,12 +848,118 @@ describe("RecordsObject", () => {
   });
 
   it("still walks unversioned state all the way to the current version", () => {
-    const v0 = { records: {}, meta: { ...emptyState().meta, digestBodyVersion: undefined } };
+    const v0 = { records: {}, meta: { ...emptyState().meta, digestBodyVersion: undefined, scanCursors: { c1: "9" }, scanBackfill: {} } };
     const migrated = migrateState(v0 as never);
-    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.schemaVersion).toBe(6);
     expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     expect(migrated.meta.digestBodyVersion).toBe(0);
     expect(migrated.meta.retryStash).toEqual({});
+    expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
+  });
+
+  it("migrates version 5 state to 6: drops scanned records, strips source, and tombstones the scan fields", () => {
+    const base = (number: number) =>
+      testRecord({
+        pr: { owner: "paranext", repo: "paranext-core", number },
+        channelId: "c",
+        messageId: "m",
+        messageTimestamp: 1_756_000_000_000,
+        title: `PT-${number}`,
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      });
+    const commanded = {
+      ...base(2),
+      team: "Power" as const,
+      claimedBy: "u9",
+      claimedByName: "Ira",
+      claimedAt: T0,
+      claimSource: "menu" as const,
+    };
+    const v5 = {
+      schemaVersion: 5,
+      records: {
+        "paranext/paranext-core/1": { ...base(1), source: "scanned" },
+        "paranext/paranext-core/2": { ...commanded, source: "command" },
+      },
+      meta: { ...emptyState().meta, scanCursors: { chan: "500" }, scanBackfill: { chan: "400" } },
+    };
+
+    const migrated = migrateState(v5 as never);
+
+    expect(migrated.schemaVersion).toBe(6);
+    expect(Object.keys(migrated.records)).toEqual(["paranext/paranext-core/2"]);
+    // Every field survives except `source`.
+    expect(migrated.records["paranext/paranext-core/2"]).toEqual(commanded);
+    // Tombstones, not deleted: an old-build scan mid-deploy reads
+    // `cursors[channelId]` with no fallback and crashes on an absent map.
+    expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
+    expect((migrated.meta as { scanBackfill?: unknown }).scanBackfill).toEqual({});
+  });
+
+  it("re-strips a scanned record and cursors an old-build tick wrote into version 6 state, on every load", () => {
+    const scanned = {
+      ...testRecord({
+        pr: { owner: "paranext", repo: "paranext-core", number: 1 },
+        channelId: "c",
+        messageId: "m",
+        messageTimestamp: 1_756_000_000_000,
+        title: "PT-1",
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      }),
+      source: "scanned",
+    };
+    const commanded = testRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 2 },
+      channelId: "c",
+      messageId: "m2",
+      messageTimestamp: 1_756_000_000_000,
+      title: "PT-2",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    const v6 = {
+      schemaVersion: 6,
+      records: {
+        "paranext/paranext-core/1": scanned,
+        "paranext/paranext-core/2": { ...commanded, source: "command" },
+      },
+      meta: { ...emptyState().meta, scanCursors: { chan: "900" }, scanBackfill: { chan: "800" } },
+    };
+
+    const migrated = migrateState(v6 as never);
+
+    expect(migrated.records).toEqual({ "paranext/paranext-core/2": commanded });
+    expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
+    expect((migrated.meta as { scanBackfill?: unknown }).scanBackfill).toEqual({});
+  });
+
+  it("returns already-clean version 6 state without copying it", () => {
+    const record = testRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 1 },
+      channelId: "c",
+      messageId: "m",
+      messageTimestamp: 1_756_000_000_000,
+      title: "PT-1",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    const v6 = {
+      schemaVersion: 6,
+      records: { "paranext/paranext-core/1": record },
+      meta: { ...emptyState().meta, scanCursors: {}, scanBackfill: {} },
+    };
+
+    const migrated = migrateState(v6 as never);
+
+    expect(migrated.records).toBe(v6.records);
+    expect(migrated.meta).toBe(v6.meta);
+  });
+
+  it("starts fresh state without the scan's fields", () => {
+    expect("scanCursors" in emptyState().meta).toBe(false);
+    expect("scanBackfill" in emptyState().meta).toBe(false);
   });
 
   it("refuses state from a NEWER schema version rather than silently rewriting it", async () => {

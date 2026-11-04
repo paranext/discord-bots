@@ -7,7 +7,8 @@ import {
   OVERFLOW_NOTICE_RESERVE,
   renderDigest,
 } from "../../../src/core/render/digest.js";
-import { newScannedRecord, resolveRecord, type PrRecord } from "../../../src/core/record.js";
+import { resolveRecord, type PrRecord } from "../../../src/core/record.js";
+import { testRecord } from "../../../fixtures/records.js";
 import type { TeamName, UrgencyKey } from "../../../config/config.js";
 
 const T0 = 1_756_000_000_000;
@@ -20,7 +21,7 @@ function rec(
   number: number,
   opts: Partial<PrRecord> & { team?: TeamName | null; urgency?: UrgencyKey | null } = {},
 ): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number },
     channelId: "chan",
     messageId: `msg-${number}`,

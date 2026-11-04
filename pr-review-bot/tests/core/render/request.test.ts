@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { config as baseConfig } from "../../../config/config.js";
 import { renderRequestMessage } from "../../../src/core/render/request.js";
-import { newScannedRecord, type PrRecord } from "../../../src/core/record.js";
+import { type PrRecord } from "../../../src/core/record.js";
+import { testRecord } from "../../../fixtures/records.js";
 
 const T0 = 1_756_000_000_000;
 
 function rec(overrides: Partial<PrRecord> = {}): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paratext-10-studio", number: 177 },
     channelId: "chan",
     messageId: "msg",
@@ -22,7 +23,6 @@ function rec(overrides: Partial<PrRecord> = {}): PrRecord {
     note: "needs a P10 build before Thursday's demo",
     requesterId: "u-1",
     requesterName: "Jolie",
-    source: "command",
     ...overrides,
   };
 }

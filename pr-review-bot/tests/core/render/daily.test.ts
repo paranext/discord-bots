@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { config as baseConfig } from "../../../config/config.js";
 import { renderDailyPost } from "../../../src/core/render/daily.js";
-import { newScannedRecord, resolveRecord, type PrRecord } from "../../../src/core/record.js";
+import { resolveRecord, type PrRecord } from "../../../src/core/record.js";
+import { testRecord } from "../../../fixtures/records.js";
 import { relTs } from "../../../src/core/time.js";
 import type { TeamName, UrgencyKey } from "../../../config/config.js";
 
@@ -9,7 +10,7 @@ const T0 = 1_756_000_000_000;
 const DAY = 86_400_000;
 
 function rec(number: number, team: TeamName | null, urgency: UrgencyKey | null, ageDays: number): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number },
     channelId: "chan",
     messageId: `m-${number}`,

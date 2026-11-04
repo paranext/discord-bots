@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractPrUrls, isAllowlisted, parsePrUrl, prSlug } from "../../src/core/urls.js";
-
-const ALLOW = ["paranext/paranext-core", "eten-tech-foundation/scripture-editors"];
+import { parsePrUrl, prSlug } from "../../src/core/urls.js";
 
 describe("parsePrUrl", () => {
   it("parses a plain PR url", () => {
@@ -44,66 +42,10 @@ describe("parsePrUrl", () => {
   });
 });
 
-describe("isAllowlisted", () => {
-  it("accepts a listed repo", () => {
-    expect(isAllowlisted({ owner: "paranext", repo: "paranext-core", number: 1 }, ALLOW)).toBe(true);
-  });
-
-  it("rejects an unlisted repo in a listed org", () => {
-    expect(isAllowlisted({ owner: "paranext", repo: "some-experiment", number: 1 }, ALLOW)).toBe(false);
-  });
-
-  it("matches case-insensitively, because GitHub does", () => {
-    expect(isAllowlisted({ owner: "Paranext", repo: "Paranext-Core", number: 1 }, ALLOW)).toBe(true);
-  });
-});
-
 describe("prSlug", () => {
   it("lowercases so identity is stable across url casing", () => {
     expect(prSlug({ owner: "Paranext", repo: "Paranext-Core", number: 2695 })).toBe(
       "paranext/paranext-core/2695",
     );
-  });
-});
-
-describe("extractPrUrls", () => {
-  it("finds every PR link in a chat message", () => {
-    const text =
-      "these two need eyes: https://github.com/paranext/paranext-core/pull/177 and " +
-      "https://github.com/eten-tech-foundation/scripture-editors/pull/341 thanks!";
-    expect(extractPrUrls(text)).toEqual([
-      { owner: "paranext", repo: "paranext-core", number: 177 },
-      { owner: "eten-tech-foundation", repo: "scripture-editors", number: 341 },
-    ]);
-  });
-
-  it("deduplicates the same PR mentioned twice", () => {
-    const text = "pull/177 again: https://github.com/paranext/paranext-core/pull/177 " +
-      "https://github.com/paranext/paranext-core/pull/177/files";
-    expect(extractPrUrls(text)).toHaveLength(1);
-  });
-
-  it("ignores issue links and returns an empty array for prose", () => {
-    expect(extractPrUrls("see https://github.com/paranext/paranext-core/issues/9")).toEqual([]);
-    expect(extractPrUrls("no links here")).toEqual([]);
-  });
-
-  it("ignores surrounding parentheses", () => {
-    expect(extractPrUrls("(https://github.com/paranext/paranext-core/pull/177)")).toEqual([
-      { owner: "paranext", repo: "paranext-core", number: 177 },
-    ]);
-  });
-
-  it.each([
-    ["period at end of sentence", "see https://github.com/paranext/paranext-core/pull/177."],
-    ["comma in a list", "https://github.com/paranext/paranext-core/pull/177, and the other one"],
-    ["semicolon separator", "check this: https://github.com/paranext/paranext-core/pull/177; also that one"],
-    ["colon after url", "review https://github.com/paranext/paranext-core/pull/177: thanks"],
-    ["exclamation mark", "see https://github.com/paranext/paranext-core/pull/177! now"],
-    ["question mark", "look at https://github.com/paranext/paranext-core/pull/177? yes"],
-  ])("strips trailing %s", (_label, text) => {
-    expect(extractPrUrls(text)).toEqual([
-      { owner: "paranext", repo: "paranext-core", number: 177 },
-    ]);
   });
 });

@@ -169,6 +169,13 @@ this can't be simplified to unauthenticated requests for the public side.
   with a personally-owned token elsewhere reintroduces the same dependency
   the App was chosen to avoid, just on the other credential.
 
+**Amendment (2026-11-03).** The App is installed on **all** `paranext`
+repositories, not an allowlisted subset: there is no repo allowlist any more
+(see `adr-command-only-requests`). The routing is unchanged — `routeOwner`
+sends `paranext` to the App and every other owner to the public token — and the
+installation token is minted without a `repositories` list, so the wider
+install needed no code change.
+
 ## adr-embed-rendering
 
 **Context.** The digest needs to fit as many rows as practically possible in
@@ -248,6 +255,66 @@ two paths coexist cleanly on the same identity (`owner/repo/number`).
   scanning alone provides no way to specify team, urgency, PRD, or a
   blocking reason; those need an explicit form. Scanned rows deliberately
   render into their own **Needs triage** section for exactly this reason.
+
+**Amendment (2026-11-03).** Superseded by `adr-command-only-requests`. The
+scan, the allowlist it relied on, and shadow mode are gone, and the scanned
+records were deleted in schema version 6.
+
+## adr-command-only-requests
+
+**Context.** The team wants to send a PR from any repo to the review channel,
+not only `paranext` ones (an upstream library, `eten-tech-foundation`, a
+contributor's fork), without anyone editing code or redeploying when a repo is
+added. The hand-kept `repoAllowlist` blocked that. It also did one useful job:
+it kept the channel scan from turning every PR link mentioned in conversation
+into a digest row. People do talk about PRs in the review channel without
+asking for a review, so dropping the allowlist while keeping the scan would
+fill the digest with rows nobody asked for.
+
+**Decision.** No repo or org allowlist, no channel scan, no read-only (shadow)
+mode. `/review-request` is the only way a PR gets onto the digest, and it
+accepts a PR from any owner. Its other checks stay: the form checks and, at
+submit, the GitHub lookup (`not-found`, `credential`, `merged`, `closed`). A
+side effect is that the bot never reads message content, so the Message
+Content privileged intent and its runtime check are removed. Read Message
+History stays, because the pin check gets no pins without it. Without a scan
+there is nothing for shadow mode to trial, so it goes too and both commands
+register from the first deploy.
+
+**Consequence.** A link pasted out of habit is silently not tracked. That is
+handled by telling people, not by code: the channel topic or a pinned message
+says "Use `/review-request` to ask for a review. Pasted links aren't tracked."
+(`docs/setup.md` step 15). A PR the bot can't read, such as a typo or a private
+repo outside `paranext`, is refused at submit rather than becoming a row that
+never updates.
+
+Any member of the Discord server can put any `paranext` PR on the digest,
+private repos included, because the App can read every repo in the org. The
+title, author login and draft state then show in the channel. A user can also
+tell from the rejection (`merged`/`closed` versus `not-found`) whether a
+private repo or PR exists. This is accepted because the server's members are
+the team that already works in those repos. The old allowlist let private repos
+such as `paranext-core` through as well, so the exposure is not new. **If the
+server ever admits people outside the org, this decision has to be revisited**:
+refusing private repos at submit (`repository.isPrivate`) is the smallest fix.
+
+**Upgrading a running deployment** is one-way. See `docs/operations.md`,
+*Upgrading to schema version 6*.
+
+**Alternatives rejected.**
+- *An org allowlist* — brings back the per-org configuration and redeploy this
+  change exists to remove.
+- *Scanning only the team's own orgs* — the same list under another name, and
+  it still turns conversation about those PRs into rows.
+- *A skip marker in the message for "don't track this"* — it makes the scan
+  opt-out, so every unmarked mention is tracked, and people would have to learn
+  a syntax that is harder than the command.
+- *A public reply or DM to people who paste a link* — needs message reading
+  again, the access this change removes, and Discord can't reply privately to a
+  plain message (only to an interaction).
+- *A Discord AutoMod rule blocking PR links* — blocks links people post to
+  discuss a PR as well. It stays available as a server setting if habit-pasting
+  becomes a real problem (`docs/operations.md`).
 
 ## adr-store-command-interface
 
@@ -544,6 +611,10 @@ describes has been removed, along with refresh-loop step 7 that filled it: the
 PRD forum lived on a server the bot no longer reaches. The retry stash is the
 only one of the two left, and it still wants the Durable Object's consistency,
 so the decision stands.
+
+**Amendment (2026-11-03).** The scan cursors this ADR discusses were retired
+with the channel scan (see `adr-command-only-requests`); schema v6 keeps only
+`{}` tombstones for them.
 
 ## adr-durable-object-schema-version
 

@@ -1,5 +1,5 @@
 import type { Config } from "../../config/config.js";
-import { isAllowlisted, parsePrUrl, type ParsedPr, type ParseFailure } from "./urls.js";
+import { parsePrUrl, type ParsedPr, type ParseFailure } from "./urls.js";
 import { urgencyLevel } from "./urgency.js";
 
 /**
@@ -50,7 +50,6 @@ export const NOTE_MAX_LENGTH = 500;
 export type SubmitRejection =
   | { reason: "not-a-pr"; detail: ParseFailure }
   | { reason: "url-too-long" }
-  | { reason: "not-allowlisted"; slug: string }
   | { reason: "invalid-team" }
   | { reason: "invalid-urgency" }
   | { reason: "note-required" }
@@ -153,14 +152,6 @@ export function parseSubmission(components: unknown, config: Config): SubmitPars
 
   const parsed = parsePrUrl(values.url);
   if (!parsed.ok) return { ok: false, values, rejection: { reason: "not-a-pr", detail: parsed.reason } };
-
-  if (!isAllowlisted(parsed.pr, config.repoAllowlist)) {
-    return {
-      ok: false,
-      values,
-      rejection: { reason: "not-allowlisted", slug: `${parsed.pr.owner}/${parsed.pr.repo}` },
-    };
-  }
 
   return { ok: true, pr: parsed.pr, values };
 }

@@ -1,6 +1,6 @@
 import type { Config } from "../../config/config.js";
 import type { PrSnapshot } from "../core/exit.js";
-import type { NewScannedInput, PrRecord, RequestFields } from "../core/record.js";
+import type { PrRecord, RequestFields } from "../core/record.js";
 import type { ParsedPr } from "../core/urls.js";
 import type { SubmittedValues } from "../core/submit.js";
 import type { Reactor } from "../core/reactions.js";
@@ -42,21 +42,13 @@ export interface Meta {
   unpinnedReportedAt: number | null;
   /** YYYY-MM-DD in the configured timezone. Keeps the daily post to once a day. */
   lastDailyPostDate: string | null;
-  /** channelId -> last fully processed message id. */
-  scanCursors: Record<string, string>;
-  /** channelId -> where an unfinished BACKWARD walk resumes. Present only while
-   *  a first-run backfill is still working its way back through the lookback
-   *  window; a channel is absent once that window is fully walked. Without it a
-   *  page-capped first run abandons the older remainder of the window
-   *  permanently, because every later tick pages forward from the newest id. */
-  scanBackfill: Record<string, string>;
   /** Requires an atomic take, which is why it lives here and not in KV. */
   syncLease: { heldSince: number } | null;
   /** interactionId -> a rejected submission's values, for the "Fix and retry"
    *  button. Pruned and capped on WRITE (see the `stashSubmission` command),
    *  never by a tick: `purgeResolved` filters `records` and never reads `meta`,
    *  and a tick-driven sweep would not run at all when a tick is turned away
-   *  with `lease-held`, nor under READ_ONLY. */
+   *  with `lease-held`. */
   retryStash: Record<string, StashedSubmission>;
 }
 
@@ -102,11 +94,13 @@ export interface StoreState {
  *  `prdThreadId` in every `Meta.retryStash[*].values`, and reduced
  *  `Meta.prdCache` to a `null` tombstone (not in `Meta`; kept only for
  *  old-build processes mid-deploy), when the bot moved to the public server
- *  only. */
-export const CURRENT_SCHEMA_VERSION = 5;
+ *  only; version 6 removed the channel scan: every record with
+ *  `source: "scanned"` is deleted, `PrRecord.source` is removed, and
+ *  `Meta.scanCursors` / `Meta.scanBackfill` are reduced to `{}` tombstones (not
+ *  in `Meta`; kept only for old-build processes mid-deploy). */
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export type Command =
-  | { kind: "upsertScanned"; input: NewScannedInput; now: number }
   | {
       kind: "upsertRequest";
       pr: ParsedPr;
@@ -192,7 +186,6 @@ export type CommandResult =
   | { kind: "ok" }
   | { kind: "created" }
   | { kind: "updated" }
-  | { kind: "skipped-resolved" }
   | { kind: "stale" }
   | { kind: "already-claimed"; byName: string }
   | { kind: "not-found" }

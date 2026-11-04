@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { selectReactionTargets, syncReactions } from "../../src/core/reactions.js";
-import { newScannedRecord, recordId, type PrRecord } from "../../src/core/record.js";
+import { recordId, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 
 const T0 = 1_756_000_000_000;
 const HOUR = 3_600_000;
 
 function record(number: number, overrides: Partial<PrRecord> = {}): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number },
     channelId: "chan",
     messageId: `msg-${number}`,

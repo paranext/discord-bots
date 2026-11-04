@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config as baseConfig } from "../../config/config.js";
-import { newScannedRecord, recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import { EPHEMERAL_FLAG } from "../../src/discord/components.js";
 import { DiscordRest } from "../../src/discord/rest.js";
 import { CredentialProvider } from "../../src/github/credentials.js";
@@ -17,7 +18,7 @@ const ID = "eten-tech-foundation/scripture-editors/341";
 
 function record(overrides: Partial<PrRecord> = {}): PrRecord {
   return {
-    ...newScannedRecord({
+    ...testRecord({
       pr: { owner: "eten-tech-foundation", repo: "scripture-editors", number: 341 },
       channelId: CHANNEL,
       messageId: "m-341",
@@ -294,7 +295,7 @@ describe("handleInteraction — component routing order", () => {
 
 describe("handleInteraction — /review-request routing", () => {
   /** A modal submission carrying whatever `custom_id` is under test. The URL is
-   *  deliberately off the allowlist so the scheduled work is turned down by
+   *  deliberately an issue link, not a PR, so the scheduled work is turned down by
    *  OFFLINE validation and touches GitHub not at all — this file is about
    *  routing, and `reviewRequest.test.ts` owns the submit path. */
   function modalRequest(customId: string) {
@@ -307,7 +308,7 @@ describe("handleInteraction — /review-request routing", () => {
       data: {
         custom_id: customId,
         components: [
-          { type: 18, component: { type: 4, custom_id: "url", value: "https://github.com/someone/else/pull/1" } },
+          { type: 18, component: { type: 4, custom_id: "url", value: "https://github.com/paranext/paranext-core/issues/1" } },
           { type: 18, component: { type: 4, custom_id: "team", value: "Power" } },
           { type: 18, component: { type: 4, custom_id: "urgency", value: "soon" } },
         ],

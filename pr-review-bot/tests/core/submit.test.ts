@@ -64,7 +64,7 @@ describe("collectValues", () => {
 });
 
 describe("parseSubmission", () => {
-  it("accepts a well-formed submission on an allowlisted repo", () => {
+  it("accepts a well-formed submission", () => {
     const result = parseSubmission(submitted(), config);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.pr).toEqual({ owner: "paranext", repo: "paranext-core", number: 9 });
@@ -76,10 +76,10 @@ describe("parseSubmission", () => {
     if (!result.ok) expect(result.rejection).toEqual({ reason: "not-a-pr", detail: "is-issue" });
   });
 
-  it("rejects a repo that is not on the allowlist, naming it", () => {
+  it("accepts a PR from any owner and repo", () => {
     const result = parseSubmission(submitted({ url: "https://github.com/someone/else/pull/1" }), config);
-    if (!result.ok) expect(result.rejection).toEqual({ reason: "not-allowlisted", slug: "someone/else" });
-    else expect.unreachable();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.pr).toEqual({ owner: "someone", repo: "else", number: 1 });
   });
 
   it("rejects a team no longer in config, rather than casting it through", () => {

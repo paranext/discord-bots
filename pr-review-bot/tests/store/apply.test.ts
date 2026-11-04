@@ -3,7 +3,8 @@ import { config } from "../../config/config.js";
 import { applyCommands, emptyState } from "../../src/store/apply.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type StoreState } from "../../src/store/types.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
-import { newScannedRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import { recordId } from "../../src/core/record.js";
 import type { RequestFields } from "../../src/core/record.js";
 
@@ -23,7 +24,7 @@ const FIELDS: RequestFields = {
 };
 
 function withRecord(overrides: Partial<PrRecord> = {}): StoreState {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
     channelId: "chan",
     messageId: "msg",
@@ -54,49 +55,6 @@ function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
   };
 }
 
-describe("upsertScanned", () => {
-  const input = {
-    pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
-    channelId: "chan",
-    messageId: "msg",
-    messageTimestamp: T0,
-    title: "PT-4363",
-    prAuthorLogin: "jolie",
-    isDraft: false,
-  };
-
-  it("creates a record on first sight", () => {
-    const out = run(emptyState(), { kind: "upsertScanned", input, now: T0 + HOUR });
-    expect(out.results[0]).toEqual({ kind: "created" });
-    expect(out.state.records[ID]?.source).toBe("scanned");
-  });
-
-  it("is idempotent — re-scanning the same PR does not duplicate or reset it", () => {
-    // The second scan must carry its OWN messageTimestamp, distinct from the first — otherwise
-    // `firstRequestedAt === T0` can't tell "left alone" from "recreated from this same input".
-    const once = run(emptyState(), { kind: "upsertScanned", input, now: T0 + HOUR });
-    const secondInput = { ...input, messageTimestamp: T0 + 2 * HOUR, messageId: "msg-2" };
-    const twice = run(once.state, { kind: "upsertScanned", input: secondInput, now: T0 + 2 * HOUR });
-    expect(Object.keys(twice.state.records)).toHaveLength(1);
-    expect(twice.state.records[ID]?.firstRequestedAt).toBe(T0);
-    expect(twice.state.records[ID]?.lastRequestedAt).toBe(T0);
-  });
-
-  it("does NOT reopen a resolved record — conversational mentions are the common case", () => {
-    const resolved = withRecord({ resolvedAt: T0 + HOUR, resolvedBy: "merged" });
-    const out = run(resolved, { kind: "upsertScanned", input, now: T0 + 2 * HOUR });
-    expect(out.results[0]).toEqual({ kind: "skipped-resolved" });
-    expect(out.state.records[ID]?.resolvedAt).toBe(T0 + HOUR);
-  });
-
-  it("leaves a commanded record's fields intact when the same PR is scanned", () => {
-    const commanded = withRecord({ source: "command", team: "Power", urgency: "blocking" });
-    const out = run(commanded, { kind: "upsertScanned", input, now: T0 + HOUR });
-    expect(out.state.records[ID]?.team).toBe("Power");
-    expect(out.state.records[ID]?.source).toBe("command");
-  });
-});
-
 describe("upsertRequest", () => {
   const command: Command = {
     kind: "upsertRequest",
@@ -119,14 +77,20 @@ describe("upsertRequest", () => {
   it("creates a commanded record when none exists", () => {
     const out = run(emptyState(), command);
     expect(out.results[0]).toEqual({ kind: "created" });
-    expect(out.state.records[ID]?.source).toBe("command");
     expect(out.state.records[ID]?.requestCount).toBe(1);
   });
 
-  it("upgrades a scanned record in place rather than duplicating", () => {
+  it("creates a first request with messageId null, not an empty string", () => {
+    const out = run(emptyState(), { ...command, fields: { ...FIELDS, messageId: null } });
+    expect(out.state.records[ID]?.messageId).toBeNull();
+    expect(out.state.records[ID]?.requestCount).toBe(1);
+  });
+
+  it("re-requesting an open record updates it in place rather than duplicating", () => {
     const out = run(withRecord(), command);
+    expect(out.results[0]).toEqual({ kind: "updated" });
     expect(Object.keys(out.state.records)).toHaveLength(1);
-    expect(out.state.records[ID]?.source).toBe("command");
+    expect(out.state.records[ID]?.requestCount).toBe(2);
     expect(out.state.records[ID]?.urgency).toBe("blocking");
   });
 
@@ -135,10 +99,11 @@ describe("upsertRequest", () => {
     const out = run(resolved, command);
     expect(out.state.records[ID]?.resolvedAt).toBeNull();
     expect(out.state.records[ID]?.resolutionHistory).toHaveLength(1);
+    expect(out.state.records[ID]?.requestCount).toBe(2);
   });
 
   it("clears a claim and preserves firstRequestedAt on re-request", () => {
-    const claimed = withRecord({ source: "command", claimedBy: "u9", claimedByName: "Ira", claimedAt: T0 });
+    const claimed = withRecord({ claimedBy: "u9", claimedByName: "Ira", claimedAt: T0 });
     const out = run(claimed, command);
     expect(out.state.records[ID]?.claimedBy).toBeNull();
     expect(out.state.records[ID]?.firstRequestedAt).toBe(T0);

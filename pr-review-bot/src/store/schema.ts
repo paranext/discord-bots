@@ -7,7 +7,8 @@ import { CURRENT_SCHEMA_VERSION, type Meta, type StashedSubmission, type StoreSt
  * was added in version 2, so version-1 state does not have it; `prdCache` was
  * added in version 3 and retired in version 5, which keeps it only as a `null`
  * tombstone (see the 4 → 5 step). Stashed values before version 5 carry
- * `prdThreadId`.
+ * `prdThreadId`. `scanCursors` and `scanBackfill` were in `Meta` until version
+ * 6, which keeps both only as `{}` tombstones (see the 5 → 6 step).
  *
  * Widening rather than versioning per field is deliberate and has a known limit:
  * a field the current shape has *removed* has to be re-added here as optional,
@@ -20,6 +21,8 @@ type StoredMeta = Omit<Meta, "digestBodyVersion" | "retryStash"> & {
    *  contents: 2 → 3 writes `null`, and from 5 on it is only ever `null`. */
   prdCache?: unknown;
   retryStash?: Record<string, StoredStashedSubmission>;
+  scanCursors?: Record<string, string>;
+  scanBackfill?: Record<string, string>;
 };
 
 /** A `StashedSubmission` as some earlier deploy could have written it: before
@@ -31,13 +34,15 @@ type StoredStashedSubmission = Omit<StashedSubmission, "values"> & {
 /**
  * A `PrRecord` as some earlier deploy could have written it. Version 4 added
  * three fields, so version-3 records lack them; version 5 removed
- * `prdThreadId`, so records before it carry it.
+ * `prdThreadId`, so records before it carry it; version 6 removed `source`, so
+ * records before it carry it.
  */
 type StoredRecord = Omit<PrRecord, "claimSource" | "reactionCheckedAt" | "lastReactors"> & {
   claimSource?: PrRecord["claimSource"];
   reactionCheckedAt?: number | null;
   lastReactors?: string[] | null;
   prdThreadId?: string | null;
+  source?: "command" | "scanned";
 };
 
 /**
@@ -187,13 +192,45 @@ export function migrateState(stored: StoredState): StoreState {
     state = { ...stripRetiredPrd(state), schemaVersion: 5 };
   }
 
-  // Every version, every load: the same strip again. An old-build tick that was
-  // already running when the deploy landed can still commit through the new
-  // Durable Object, writing a full `prdCache` back with `setMeta` or a
-  // `prdThreadId` onto a record with `markRequested` — into state already
-  // stamped 5, which the step above never revisits. Re-running the strip here
-  // means anything such a write leaves behind is gone on the next load.
-  state = stripRetiredPrd(state);
+  // 5 → 6: the channel scan was removed, and /review-request became the only
+  // way a PR reaches the digest. Every record the scan created
+  // (`source: "scanned"`) is deleted — nobody asked for those reviews, so
+  // carrying them forward would keep rows on the digest that no command put
+  // there — and `source` is deleted from the rest, since every record is now a
+  // command record. `scanCursors` and `scanBackfill` are NOT deleted but set to
+  // `{}`: while a deploy rolls out, Worker processes on the old build still run
+  // the scan against this state, and the old scan reads `cursors[channelId]`
+  // with no fallback, so it crashes on an absent map but treats an empty one as
+  // a channel it has not walked yet. Same reasoning as the `prdCache` tombstone.
+  if (state.schemaVersion === 5) {
+    state = { ...stripRetiredScan(state), schemaVersion: 6 };
+  }
+
+  // Every version, every load: the same strips again. An old-build tick that
+  // was already running when the deploy landed can still commit through the new
+  // Durable Object — writing a full `prdCache` back with `setMeta`, a
+  // `prdThreadId` onto a record with `markRequested`, or the scan's advanced
+  // cursors with `setMeta` — into state already stamped with the new version,
+  // which the steps above never revisit. Re-running the strips here means
+  // anything such a write leaves behind is gone on the next load.
+  //
+  // What an old-build scan can actually get committed is narrower than that
+  // list suggests. If its batch carries any `upsertScanned` — likely, since
+  // the `{}` tombstone reads to the old scan as an unwalked channel and it
+  // backfills the whole lookback window — the new `applyOne` has no case for
+  // it, `applyCommands` throws, and `finishTick` rejects the WHOLE batch
+  // before `save`: nothing is written, cursors included. That is a loud
+  // failure, not a silent drop. The old tick's own `finally` then releases
+  // its lease with a separate `releaseLease`; only if that release fails too
+  // does the lease stay held until `LEASE_TIMEOUT_MS`, turning the next
+  // new-build ticks away with `lease-held` until it ages out. Either way the
+  // next new-build tick to take the lease recovers with state intact. An old
+  // scan that found no PR links has no `upsertScanned` to trip on, so its
+  // batch commits and writes its cursors back — which is what the cursor half
+  // of this re-run resets. The scanned-record half re-runs too, so that
+  // dropping those records does not rest on `applyOne` continuing to reject
+  // `upsertScanned`.
+  state = stripRetiredScan(stripRetiredPrd(state));
 
   // Sound because the last step above produces CURRENT_SCHEMA_VERSION, and
   // anything higher was refused before the chain ran.
@@ -206,6 +243,14 @@ export function migrateState(stored: StoredState): StoreState {
  * present (left absent when absent — state created at version 5 never had it).
  */
 function stripRetiredPrd(state: MigratingState): MigratingState {
+  // This runs on every load, so state with nothing to strip — every load once
+  // the rollout window has passed — is returned as is rather than copied.
+  const dirty =
+    (state.meta.prdCache !== undefined && state.meta.prdCache !== null) ||
+    Object.values(state.records).some((record) => "prdThreadId" in record) ||
+    Object.values(state.meta.retryStash ?? {}).some((entry) => "prdThreadId" in entry.values);
+  if (!dirty) return state;
+
   const records: Record<string, StoredRecord> = {};
   for (const [id, record] of Object.entries(state.records)) {
     const { prdThreadId: _prd, ...rest } = record;
@@ -219,4 +264,32 @@ function stripRetiredPrd(state: MigratingState): MigratingState {
   const meta: StoredMeta = { ...state.meta, retryStash };
   if ("prdCache" in meta) meta.prdCache = null;
   return { ...state, records, meta };
+}
+
+/**
+ * Removes every stored trace of the channel scan: each record the scan created,
+ * `source` from every remaining record, and both scan maps reduced to their `{}`
+ * tombstones. Unlike `prdCache`, the tombstones are written even when absent,
+ * because the old scan indexes into both maps unconditionally. `emptyState()`
+ * does not carry them, and does not need to: a Durable Object with no stored
+ * state has never been touched by an old build, so no old build is rolling out
+ * against it. Its first save is followed by a load, which adds them here.
+ */
+function stripRetiredScan(state: MigratingState): MigratingState {
+  // Skipped on clean state for the same reason as `stripRetiredPrd`.
+  const isTombstone = (map: Record<string, string> | undefined): boolean =>
+    map !== undefined && Object.keys(map).length === 0;
+  const dirty =
+    !isTombstone(state.meta.scanCursors) ||
+    !isTombstone(state.meta.scanBackfill) ||
+    Object.values(state.records).some((record) => "source" in record);
+  if (!dirty) return state;
+
+  const records: Record<string, StoredRecord> = {};
+  for (const [id, record] of Object.entries(state.records)) {
+    const { source, ...rest } = record;
+    if (source === "scanned") continue;
+    records[id] = rest;
+  }
+  return { ...state, records, meta: { ...state.meta, scanCursors: {}, scanBackfill: {} } };
 }

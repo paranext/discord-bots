@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { applySnapshot, countsAsReview, exitVerdict, type PrSnapshot, type ReviewEvent } from "../../src/core/exit.js";
-import { newScannedRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 
 const T0 = 1_756_000_000_000;
 const HOUR = 3_600_000;
 
 function record(overrides: Partial<PrRecord> = {}): PrRecord {
-  const base = newScannedRecord({
+  const base = testRecord({
     pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
     channelId: "chan",
     messageId: "msg",

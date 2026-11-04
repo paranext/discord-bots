@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config as baseConfig } from "../../config/config.js";
-import { newScannedRecord, recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { recordId, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { testRecord } from "../../fixtures/records.js";
 import { DiscordRest } from "../../src/discord/rest.js";
 import { CredentialProvider } from "../../src/github/credentials.js";
 import { runTick } from "../../src/handlers/scheduled.js";
@@ -40,7 +41,7 @@ function makePublisher() {
 
 function record(number: number, overrides: Partial<PrRecord> = {}): PrRecord {
   return {
-    ...newScannedRecord({
+    ...testRecord({
       pr: { owner: "eten-tech-foundation", repo: "scripture-editors", number },
       channelId: CHANNEL,
       messageId: `m-${number}`,
@@ -60,20 +61,20 @@ function seeded(records: PrRecord[]): StoreState {
   return {
     ...base,
     records: Object.fromEntries(records.map((r) => [recordId(r), r])),
-    meta: { ...base.meta, digestMessageId: "digest-1", lastSync: T0 - 60_000, lastDailyPostDate: "2026-08-31", scanCursors: { [CHANNEL]: "500" } },
+    meta: { ...base.meta, digestMessageId: "digest-1", lastSync: T0 - 60_000, lastDailyPostDate: "2026-08-31" },
   };
 }
 
 /** Routes stubbed fetch by url: GitHub GraphQL vs Discord pins vs Discord
  *  messages. */
-function stubAll(opts: { graphql?: unknown; graphqlStatus?: number; messages?: unknown[] }) {
+function stubAll(opts: { graphql?: unknown; graphqlStatus?: number }) {
   vi.stubGlobal("fetch", async (input: string, _init: RequestInit) => {
     const url = String(input);
     if (url.includes("api.github.com/graphql")) {
       return new Response(JSON.stringify(opts.graphql ?? { data: {} }), { status: opts.graphqlStatus ?? 200 });
     }
     if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
-    if (url.includes("/messages")) return new Response(JSON.stringify(opts.messages ?? []), { status: 200 });
+    if (url.includes("/messages")) return new Response(JSON.stringify([]), { status: 200 });
     return new Response("{}", { status: 200 });
   });
 }
@@ -111,7 +112,7 @@ type RestWithDms = DiscordRest & {
 };
 
 /** A real DiscordRest with `getReactions` overridden, keyed by messageId — the
- *  other routes (scan, GitHub) still go through the stubbed
+ *  other routes (GitHub) still go through the stubbed
  *  global fetch set up by `stubAll`, so callers pair this with `stubAll(...)`.
  *  Also stubs the DM route (`createDmChannel` + `postContent`) and records
  *  every successfully DELIVERED DM in `dmCalls`, keyed by the recipient's user
@@ -213,6 +214,40 @@ describe("runTick — the lease", () => {
     expect(report.skipped).toBe(true);
     expect(report.reason).toBe("lease-held");
     expect(patches).toHaveLength(0);
+  });
+
+  it("does not clear a newer tick's lease when its own has already expired (R52)", async () => {
+    // The fence has to hold in `finishTick`'s release too. This tick takes the
+    // lease at T0 and then overruns the scheduled wall-clock limit — modelled by a
+    // newer tick breaking its lease from inside the GitHub fetch, which is one of
+    // the awaits a real overrun would happen at.
+    const store = { current: null as MemoryStore | null };
+    let broke = false;
+    vi.stubGlobal("fetch", async (input: string) => {
+      const url = String(input);
+      if (url.includes("api.github.com/graphql")) {
+        if (!broke) {
+          broke = true;
+          // A newer tick, LEASE_TIMEOUT_MS later, legitimately breaks and takes
+          // the lease while this one is still mid-flight.
+          await store.current!.beginTick(T0 + 16 * 60_000);
+        }
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      }
+      if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      return new Response("{}", { status: 200 });
+    });
+
+    const { publisher } = makePublisher();
+    // One open record, so the tick has something to ask GitHub about.
+    store.current = new MemoryStore(config, publisher, seeded([record(1)]));
+
+    await runTick(deps(store.current));
+
+    // The premise held — the newer tick really did take the lease over.
+    expect(broke).toBe(true);
+    // And the overrunning tick's release left it alone.
+    expect((await store.current.readState()).meta.syncLease).toEqual({ heldSince: T0 + 16 * 60_000 });
   });
 });
 
@@ -401,26 +436,7 @@ describe("runTick — partial GitHub failures", () => {
   });
 });
 
-describe("runTick — scanning and housekeeping", () => {
-  it("ingests a scanned link and advances the cursor", async () => {
-    stubAll({
-      graphql: { data: {} },
-      messages: [
-        { id: "600", content: "review please https://github.com/paranext/paranext-core/pull/2695",
-          timestamp: new Date(T0 - DAY).toISOString(), author: { id: "human", bot: false, username: "jolie" } },
-      ],
-    });
-    const { publisher } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([]));
-
-    const report = await runTick(deps(store));
-    expect(report.scanned).toBe(1);
-
-    const state = await store.readState();
-    expect(state.records["paranext/paranext-core/2695"]?.source).toBe("scanned");
-    expect(state.meta.scanCursors[CHANNEL]).toBe("600");
-  });
-
+describe("runTick — housekeeping", () => {
   it("clears a stale claim and reports it", async () => {
     stubAll({ graphql: { data: { p0: { pullRequest: { number: 1, title: "PT-1", isDraft: false, merged: false, state: "OPEN", author: { login: "jolie" }, reviews: { nodes: [] } } } } } });
     const stale = record(1, { claimedBy: "u1", claimedByName: "Ira", claimedAt: T0 - 3 * DAY });
@@ -443,6 +459,27 @@ describe("runTick — scanning and housekeeping", () => {
     expect(Object.keys((await store.readState()).records)).toHaveLength(0);
   });
 
+  it("reports staleClaimsCleared and purged together, each from its own command result", async () => {
+    // Both counters non-zero and DISTINCT (2 and 3), so a copy-paste between them
+    // cannot pass: the two tests above only ever see a count of 1 each, which
+    // would also pass if the counters were read from the wrong command.
+    stubAll({ graphql: { data: {} } });
+    const staleClaims = [1, 2].map((n) =>
+      record(n, { claimedBy: `u${n}`, claimedByName: `Ira ${n}`, claimedAt: T0 - 3 * DAY }),
+    );
+    const ancient = [3, 4, 5].map((n) => resolveRecord(record(n), T0 - 40 * DAY, "merged"));
+    const { publisher } = makePublisher();
+    const store = new MemoryStore(config, publisher, seeded([...staleClaims, ...ancient]));
+
+    const report = await runTick(deps(store));
+
+    expect(report.staleClaimsCleared).toBe(2);
+    expect(report.purged).toBe(3);
+    const records = (await store.readState()).records;
+    expect(Object.keys(records)).toHaveLength(2);
+    expect(records["eten-tech-foundation/scripture-editors/1"]?.claimedBy).toBeNull();
+  });
+
   it("stays inside the subrequest budget with 40 tracked PRs", async () => {
     stubAll({ graphql: { data: {} } });
     const records = Array.from({ length: 40 }, (_, i) => record(i + 1));
@@ -453,10 +490,10 @@ describe("runTick — scanning and housekeeping", () => {
     // The design invariant is "at most TWO store subrequests per tick, independent
     // of record count" — `< 50` would also pass a regression that read the store
     // once per record. Pin the exact count: 1 beginTick + 2 GraphQL chunks (40
-    // records, chunked to 25) + 1 scan page (no messages) + 10 reaction reads
+    // records, chunked to 25) + 10 reaction reads
     // (step 8, capped by `reactionReadsPerTick`, since all 40 records are open,
     // unclaimed, and eligible) + 1 finishTick.
-    expect(report.subrequests).toBe(15);
+    expect(report.subrequests).toBe(14);
   });
 });
 
@@ -464,17 +501,11 @@ describe("runTick — the two-subrequest store invariant", () => {
   it("calls the store exactly twice (beginTick + finishTick) across a full tick, with 40 records", async () => {
     // A regression that re-reads or re-applies per record, or adds a third
     // store round-trip, would pass every other test in this file: none of them
-    // count store calls directly. This fixture (40 records, a stale claim, a
-    // scanned link, and an old resolved record to purge) is large and varied
+    // count store calls directly. This fixture (40 records, a stale claim, and
+    // an old resolved record to purge) is large and varied
     // enough that a per-record regression would be obvious, not a coincidence
     // of a 1-record fixture happening to total 2.
-    stubAll({
-      graphql: { data: {} },
-      messages: [
-        { id: "700", content: "https://github.com/paranext/paranext-core/pull/1",
-          timestamp: new Date(T0 - DAY).toISOString(), author: { id: "human", bot: false, username: "jolie" } },
-      ],
-    });
+    stubAll({ graphql: { data: {} } });
     const stale = record(1, { claimedBy: "u1", claimedByName: "Ira", claimedAt: T0 - 3 * DAY });
     const ancient = resolveRecord(record(2), T0 - 40 * DAY, "merged");
     const rest = Array.from({ length: 38 }, (_, i) => record(i + 3));
@@ -492,205 +523,33 @@ describe("runTick — the two-subrequest store invariant", () => {
   });
 });
 
-describe("runTick — a page-capped scan", () => {
-  it("reports it and records where to resume, so a partial backfill is not silent", async () => {
-    // A busy channel on a first run: every page comes back full and in-window,
-    // so the per-tick page budget stops the backward walk short. Both halves of
-    // finding 7 are asserted here — the report says so (it is logged verbatim,
-    // and shadow mode has no other way to tell a truncated backfill from "no
-    // links there"), and the resume point is stored so the older remainder of
-    // the lookback window is walked next tick instead of abandoned.
-    const page = Array.from({ length: 100 }, (_, i) => ({
-      id: String(1000 + i),
-      content: "no links here",
-      timestamp: new Date(T0 - DAY).toISOString(),
-      author: { id: "human", bot: false, username: "jolie" },
-    }));
-    stubAll({ graphql: { data: {} }, messages: page });
-    const { publisher } = makePublisher();
-    const base = emptyState();
-    // No stored scanCursors: this is a first run, which is the only case where
-    // the walk goes backwards through the lookback window.
-    const store = new MemoryStore(config, publisher, {
-      ...base,
-      records: {},
-      meta: { ...base.meta, digestMessageId: "digest-1", lastSync: T0 - 60_000, lastDailyPostDate: "2026-08-31" },
-    });
-
-    const report = await runTick(deps(store));
-
-    expect(report.scanHitPageCap).toBe(true);
-    const meta = (await store.readState()).meta;
-    // The oldest id processed — where the next tick's backward walk resumes.
-    expect(meta.scanBackfill[CHANNEL]).toBe("1000");
-    // And the forward cursor still points at the channel's head, so once the
-    // backfill finishes nothing newer has been skipped.
-    expect(meta.scanCursors[CHANNEL]).toBe("1099");
-  });
-});
-
-describe("runTick — read-only mode", () => {
-  it("runs the full loop, logs the body, and writes nothing", async () => {
-    stubAll({
-      graphql: { data: { p0: { pullRequest: { number: 1, title: "PT-1 renamed", isDraft: false, merged: true, state: "MERGED", author: { login: "jolie" }, reviews: { nodes: [] } } } } },
-    });
-    const { publisher, patches } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([record(1)]));
-
-    const report = await runTick(deps(store, { readOnly: true }));
-    expect(patches).toHaveLength(0);
-    expect(report.digest).not.toBeNull();
-    // The record is unchanged: nothing was committed.
-    expect((await store.readState()).records["eten-tech-foundation/scripture-editors/1"]?.resolvedAt).toBeNull();
-    // The lease taken by beginTick must still be released even though finishTick
-    // never runs in read-only mode — otherwise every tick for the next
-    // LEASE_TIMEOUT_MS is turned away with lease-held, for the whole of shadow mode.
-    expect((await store.readState()).meta.syncLease).toBeNull();
-    expect(await store.beginTick(T0 + 60_000)).toMatchObject({ acquired: true });
-  });
-
-  it("logs the projected state, not the opening snapshot: a merged PR drops out and an untouched one stays (R46a)", async () => {
-    // record(1) merges this tick and must disappear from the read-only log;
-    // record(2) is untouched and must still be there. Rendering from
-    // `opening.state.records` (the bug) would show BOTH as still open.
-    stubAll({
-      graphql: {
-        data: {
-          p0: { pullRequest: { number: 1, title: "PT-1", isDraft: false, merged: true, state: "MERGED", author: { login: "jolie" }, reviews: { nodes: [] } } },
-          p1: { pullRequest: { number: 2, title: "PT-2", isDraft: false, merged: false, state: "OPEN", author: { login: "jolie" }, reviews: { nodes: [] } } },
-        },
-      },
-    });
-    const logs: string[] = [];
-    const spy = vi.spyOn(console, "log").mockImplementation((msg: string) => { logs.push(msg); });
-    const { publisher } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([record(1), record(2)]));
-
-    await runTick(deps(store, { readOnly: true }));
-    spy.mockRestore();
-
-    const body = logs.join("\n");
-    expect(body).not.toContain("PT-1");
-    expect(body).toContain("PT-2");
-  });
-
-  it("reports scanHitPageCap: true on a page-capped scan — shadow mode is the only place this signal is read", async () => {
-    // The read-only twin of "runTick — a page-capped scan" above. Shadow mode
-    // never persists records or scan progress, so `scanHitPageCap` in the tick
-    // log is the ONLY way to see a page-capped backfill in read-only mode — a
-    // hard-coded `false` here would leave the suite green while lying to the
-    // one deployment mode that exists to be watched.
-    const page = Array.from({ length: 100 }, (_, i) => ({
-      id: String(1000 + i),
-      content: "no links here",
-      timestamp: new Date(T0 - DAY).toISOString(),
-      author: { id: "human", bot: false, username: "jolie" },
-    }));
-    stubAll({ graphql: { data: {} }, messages: page });
-    const { publisher } = makePublisher();
-    const base = emptyState();
-    // No stored scanCursors: a first run, the only case where the walk goes
-    // backwards through the lookback window and can hit the page cap.
-    const store = new MemoryStore(config, publisher, {
-      ...base,
-      records: {},
-      meta: { ...base.meta, digestMessageId: "digest-1", lastSync: T0 - 60_000, lastDailyPostDate: "2026-08-31" },
-    });
-
-    const report = await runTick(deps(store, { readOnly: true }));
-
-    expect(report.scanHitPageCap).toBe(true);
-    // And, per shadow mode's contract, nothing was persisted — not even the
-    // resume point a live tick would have stored.
-    const meta = (await store.readState()).meta;
-    expect(meta.scanCursors).toEqual({});
-    expect(meta.scanBackfill).toEqual({});
-  });
-
-  it("reports scanned, staleClaimsCleared and purged as what the tick WOULD have done (finding 10)", async () => {
-    // Shadow mode's report is its only output, and an operator decides whether to
-    // go live off these numbers. Every counter here is non-zero and DISTINCT from
-    // the others, so a copy-paste between them cannot pass:
-    //   scanned = 1, staleClaimsCleared = 2, purged = 3.
-    //
-    // `scanned` is the one that needs two links rather than one. The old
-    // implementation reported `scan.commands.length`, so a fixture with a single
-    // new link would report 1 either way. The second link points at a PR already
-    // on the list, whose upsertScanned comes back `updated` — raw command count
-    // says 2, the true number of new arrivals is 1.
-    stubAll({
-      graphql: { data: {} },
-      messages: [
-        { id: "701", content: "https://github.com/paranext/paranext-core/pull/900",
-          timestamp: new Date(T0 - DAY).toISOString(), author: { id: "human", bot: false, username: "jolie" } },
-        { id: "702", content: "https://github.com/eten-tech-foundation/scripture-editors/pull/1",
-          timestamp: new Date(T0 - DAY).toISOString(), author: { id: "human", bot: false, username: "jolie" } },
-      ],
-    });
-    const staleClaims = [1, 2].map((n) =>
-      record(n, { claimedBy: `u${n}`, claimedByName: `Ira ${n}`, claimedAt: T0 - 3 * DAY }),
-    );
-    const ancient = [3, 4, 5].map((n) => resolveRecord(record(n), T0 - 40 * DAY, "merged"));
-    const { publisher, patches } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([...staleClaims, ...ancient]));
-
-    const report = await runTick(deps(store, { readOnly: true }));
-
-    expect(report.scanned).toBe(1);
-    expect(report.staleClaimsCleared).toBe(2);
-    expect(report.purged).toBe(3);
-    // Still shadow mode: nothing was committed and nothing was posted, so these
-    // numbers are a projection rather than a record of writes that happened.
-    expect(patches).toHaveLength(0);
-    expect(Object.keys((await store.readState()).records)).toHaveLength(5);
-    expect((await store.readState()).records["eten-tech-foundation/scripture-editors/1"]?.claimedBy).toBe("u1");
-  });
-
-  it("does not clear a newer tick's lease when its own has already expired (R52)", async () => {
-    // Read-only mode releases the lease itself, in the one place that is not
-    // `finishTick`. So the fence has to hold here too. This tick takes the lease
-    // at T0 and then overruns the scheduled wall-clock limit — modelled by a
-    // newer tick breaking its lease from inside the scan fetch, which is one of
-    // the awaits a real overrun would happen at.
-    const store = { current: null as MemoryStore | null };
-    let broke = false;
+describe("refresh loop step 6 — retired", () => {
+  it("never lists channel messages, even with a PR link sitting in the channel", async () => {
+    // The channel holds a message with a PR link. Before step 6 was retired the
+    // tick listed the channel and created a record from it.
+    const requested: string[] = [];
     vi.stubGlobal("fetch", async (input: string) => {
       const url = String(input);
+      requested.push(url);
+      if (url.includes("api.github.com/graphql")) return new Response(JSON.stringify({ data: {} }), { status: 200 });
       if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
       if (url.includes("/messages")) {
-        if (!broke) {
-          broke = true;
-          // A newer tick, LEASE_TIMEOUT_MS later, legitimately breaks and takes
-          // the lease while this one is still mid-flight.
-          await store.current!.beginTick(T0 + 16 * 60_000);
-        }
-        return new Response(JSON.stringify([]), { status: 200 });
+        return new Response(
+          JSON.stringify([
+            { id: "600", content: "review please https://github.com/paranext/paranext-core/pull/2695",
+              timestamp: new Date(T0 - DAY).toISOString(), author: { id: "human", bot: false, username: "jolie" } },
+          ]),
+          { status: 200 },
+        );
       }
       return new Response("{}", { status: 200 });
     });
+    const store = memoryStoreWith([]);
 
-    const { publisher } = makePublisher();
-    store.current = new MemoryStore(config, publisher, seeded([]));
+    await runTick(deps(store));
 
-    await runTick(deps(store.current, { readOnly: true }));
-
-    // The premise held — the newer tick really did take the lease over.
-    expect(broke).toBe(true);
-    // And the overrunning tick's release left it alone. An unconditional
-    // release reports the same tick report and leaves this null.
-    expect((await store.current.readState()).meta.syncLease).toEqual({ heldSince: T0 + 16 * 60_000 });
-  });
-
-  it("counts the lease-releasing apply as a subrequest (R46b)", async () => {
-    // 1 beginTick + 1 GraphQL chunk (1 record) + 1 scan page (no messages) +
-    // 1 reaction read (step 8: the one record is open, unclaimed and eligible)
-    // + 1 lease-releasing apply = 5. Undercounting would report 4.
-    stubAll({ graphql: { data: { p0: { pullRequest: { number: 1, title: "PT-1", isDraft: false, merged: false, state: "OPEN", author: { login: "jolie" }, reviews: { nodes: [] } } } } } });
-    const { publisher } = makePublisher();
-    const store = new MemoryStore(config, publisher, seeded([record(1)]));
-
-    const report = await runTick(deps(store, { readOnly: true }));
-    expect(report.subrequests).toBe(5);
+    expect(requested.some((u) => /\/channels\/[^/]+\/messages\?/.test(u))).toBe(false);
+    expect(Object.keys((await store.readState()).records)).toHaveLength(0);
   });
 });
 
@@ -870,8 +729,8 @@ describe("refresh loop step 8 — the allowance is a subrequest BUDGET, not a re
   it("sheds allowance when the subrequest count is already high, and the tick stays under the ceiling", async () => {
     stubAll({ graphql: { data: {} } });
     // 900 records -> ceil(900/25) = 36 GraphQL chunks. Before step 8: 1
-    // (beginTick) + 36 (GraphQL) + 1 (scan, no messages) = 38 spent.
-    // allowance = min(10, 50 - 38 - 5) = 7, so 3 of the budget's 10 is shed.
+    // (beginTick) + 36 (GraphQL) = 37 spent.
+    // allowance = min(10, 50 - 37 - 5) = 8, so 2 of the budget's 10 is shed.
     const store = memoryStoreWith(manyOpenRecords(900));
 
     const report = await runTick(deps(store, { rest: stubRestWithReactions({}) }));
@@ -883,8 +742,8 @@ describe("refresh loop step 8 — the allowance is a subrequest BUDGET, not a re
 
   it("skips step 8 entirely when the allowance is zero", async () => {
     stubAll({ graphql: { data: {} } });
-    // 1100 records -> ceil(1100/25) = 44 chunks -> 1 + 44 + 1 (scan) = 46 spent
-    // before step 8. allowance = min(10, 50 - 46 - 5) = min(10, -1) clamped to 0.
+    // 1100 records -> ceil(1100/25) = 44 chunks -> 1 + 44 = 45 spent before
+    // step 8. allowance = min(10, 50 - 45 - 5) = 0.
     const store = memoryStoreWith(manyOpenRecords(1100));
 
     const report = await runTick(deps(store, { rest: stubRestWithReactions({}) }));
@@ -922,14 +781,14 @@ describe("refresh loop step 8 — the allowance is a subrequest BUDGET, not a re
   });
 
   it("does not start a two-subrequest read on the last single unit of allowance", async () => {
-    // 1050 records -> ceil(1050/25) = 42 GraphQL chunks -> 1 (beginTick) + 42 +
-    // 1 (scan) = 44 spent, so allowance = min(10, 50 - 44 - 5)
-    // = 1. Every record here is claimed by reaction with its holder absent, so
-    // every read costs 2. `remaining <= 0` let one of them start anyway and
-    // spend `allowance + 1` — one over the ceiling on a tick that also pays for
-    // finishTick and two DMs, which is exactly what RESERVE is sized to prevent.
+    // 1075 records -> ceil(1075/25) = 43 GraphQL chunks -> 1 (beginTick) + 43
+    // = 44 spent, so allowance = min(10, 50 - 44 - 5) = 1. Every record here
+    // is claimed by reaction with its holder absent, so every read costs 2.
+    // `remaining <= 0` let one of them start anyway and spend `allowance + 1` —
+    // one over the ceiling on a tick that also pays for finishTick and two DMs,
+    // which is exactly what RESERVE is sized to prevent.
     stubAll({ graphql: { data: {} } });
-    const held = Array.from({ length: 1050 }, (_, i) => heldByReaction(i + 1, "u9", "Ira"));
+    const held = Array.from({ length: 1075 }, (_, i) => heldByReaction(i + 1, "u9", "Ira"));
     const store = memoryStoreWith(held);
 
     const report = await runTick(deps(store, { rest: stubRestWithReactions({}) }));
@@ -1142,15 +1001,5 @@ describe("refresh loop step 8 — the private notice to a superseded reactor", (
     await runTick(deps(store, { rest }));
 
     expect(rest.dmCalls).toHaveLength(2);
-  });
-
-  it("sends no DMs in read-only mode", async () => {
-    stubAll({});
-    const store = memoryStoreWith([heldByReaction(1, "u9", "Ira")]);
-    const rest = stubRestWithReactions({
-      "msg-1": [{ id: "u9", username: "ira" }, { id: "u1", username: "katherine" }],
-    });
-    await runTick(deps(store, { rest, readOnly: true }));
-    expect(rest.dmCalls).toEqual([]);
   });
 });

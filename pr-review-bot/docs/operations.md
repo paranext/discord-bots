@@ -110,7 +110,7 @@ the error.
 | `DISCORD_BOT_TOKEN` | Bot goes fully offline: no message posts, no reads, no interaction responses | Immediate — you'll notice on the next tick |
 | `DISCORD_PUBLIC_KEY` | `/interactions` starts rejecting every request with 401 | Immediate |
 | `GITHUB_APP_PRIVATE_KEY` | `paranext`-owned repos stop syncing (`credentials.app.failedClosed`) | **Key age, tracked by hand below — not by `/health`** |
-| `GITHUB_PUBLIC_TOKEN` | Non-`paranext` repos (e.g. `scripture-editors`) stop syncing | Token expiry date, tracked by hand below |
+| `GITHUB_PUBLIC_TOKEN` | Non-`paranext` repos (any other owner) stop syncing | Token expiry date, tracked by hand below |
 
 To rotate any secret: `wrangler secret put <NAME>`, then redeploy
 (`npm run deploy`) so the running instance picks it up.
@@ -132,18 +132,18 @@ endpoint.**
 - **`GITHUB_PUBLIC_TOKEN` expiry date:** _(fill in on first deploy — see
   `docs/setup.md` step 8)_
 
-## Adding a repo, adding a team
+## Adding a team
 
-Both are one-line PRs to `config/config.ts`:
+Any repo is accepted by `/review-request`; there is nothing to add. A
+`paranext` repo is covered because the GitHub App is installed on all
+`paranext` repositories (setup step 6), and every other owner goes through the
+public token. A PR the bot can't read (a typo, or a private repo outside
+`paranext`) is refused at submit as `not-found`.
 
-- **Repo:** add `"owner/repo"` to `repoAllowlist`. If it's under `paranext`,
-  confirm the GitHub App install covers it (step 6 of setup); otherwise the
-  public token already covers any public repo with no further setup.
-- **Team:** add the name to the `teams` array (order there is the order
-  sections render in on the digest).
-
-Both changes take effect on the next deploy. No data migration is needed —
-`teams` and `repoAllowlist` are read fresh from config on every tick.
+A team is a one-line PR to `config/config.ts`: add the name to the `teams`
+array (order there is the order sections render in on the digest). It takes
+effect on the next deploy. No data migration is needed — `teams` is read fresh
+from config on every tick.
 
 **Removing a team** needs no migration either, but say what happens to the rows
 that were already filed under it: they render in **Triage** from the next tick,
@@ -161,17 +161,45 @@ Object is genuinely gone — a new one starts from an empty state).
 There is no backup to restore from; recovery is a documented rebuild, not a
 restore:
 
-1. The next tick's scan step re-reads the configured lookback window
-   (`config.scanLookbackMs`, 7 days) and reconstructs scanned records from
-   any PR links still visible in the channel's recent history.
-2. For anything requested via `/review-request` outside that window, re-read
-   the bot's own past request messages in the channel (they carry the same
-   team/urgency/note information that was in the lost record) and
-   re-run `/review-request` on each one to recreate it.
+Re-read the bot's own past request messages in the channel (they carry the
+same team/urgency/note information that was in the lost record) and re-run
+`/review-request` on each one to recreate it. Nothing rebuilds records on its
+own: there is no channel scan.
 
 This is why records are retained for 30 days after resolution instead of
 deleted immediately — the same mechanism that answers "why did my row
 disappear" also gives a longer window to notice and recover from data loss.
+
+## Upgrading to schema version 6
+
+The release that removed the channel scan (`adr-command-only-requests`) is the
+first to write schema version 6, and **it cannot be rolled back.** Its first
+load of the store permanently deletes every record the scan created, claimed
+ones included, and saves the state as version 6. Any earlier build refuses
+version 6 (`migrateState` throws), so rolling back stops every tick and
+interaction until a build at version 6 or later is deployed again. If something
+goes wrong, roll forward.
+
+Before deploying it to a deployment that ran an earlier build:
+
+1. **Note what will be dropped.** Scanned rows are the ones in the digest's
+   Needs triage section. Anyone who still wants a review for one of them
+   re-requests it with `/review-request` after the deploy.
+2. **If the deployment is still in shadow mode** (`READ_ONLY` set to `true`),
+   don't deploy until you're ready to go live. Shadow mode is gone and the
+   setting is ignored, so the first tick after the deploy posts the digest to
+   the real channel and can send claim DMs.
+3. **Remove the leftover settings** once the deploy is out:
+
+   ```bash
+   wrangler secret delete READ_ONLY
+   ```
+
+   In the Discord Developer Portal (Bot → Privileged Gateway Intents), turn
+   **Message Content** off. The bot no longer reads messages.
+4. **Register the commands again** (`docs/setup.md` step 15), so both commands
+   exist even if only `/review-list` was registered for shadow mode, and set
+   the channel topic note that step describes.
 
 ## The named second owner
 
@@ -182,41 +210,16 @@ a credential, redeploy, or re-pin the digest after a Cloudflare account
 change locks everyone else out, and it degrades silently rather than loudly.
 
 - **Primary owner:** Jolie Rabideau (jolie_rabideau@sil.org)
-- **Second owner:** _(name here before shadow mode ends — this is a real gap
+- **Second owner:** _(name here before go-live — this is a real gap
   until someone is named)_
 
-## Shadow-mode measurement log
+## Someone pasted a link instead of using the command
 
-While shadow mode is running, log daily:
-
-- every row still listed 30 minutes after a review landed (target: zero;
-  **two or more means fix before proceeding**)
-- every hand-posted PR that never appeared on the digest (same threshold)
-
-**Honest limits of this measurement, so they aren't forgotten mid-sprint:**
-every row scanned during shadow mode lands in **Needs triage** — team
-grouping and urgency ordering get **no** real-world exercise
-here, and team grouping is the primary design axis of the whole digest.
-Shadow mode validates only the sync loop: whether rows appear and disappear
-correctly on their own. That is deliberately the half being tested here,
-because it's the half that silently corrupts trust if it's wrong — but it is
-not a test of the digest's layout or grouping.
-
-It is also not a test of full 7-day coverage. Shadow mode persists no
-records, so it never persists `scanCursors` or `scanBackfill` either — every
-tick re-samples the newest pages of each channel instead of backfilling the
-whole lookback window, and a busy channel's per-tick page budget can cut that
-sample short. Check the tick log for `scanHitPageCap: true`; that is the only
-signal that a shadow tick's window was truncated rather than genuinely empty.
-This is intentional, not a bug to chase: advancing the scan cursor without
-recording the PRs it walked past would make the live run skip them
-permanently once shadow mode ends — a far worse outcome than a shadow window
-that only samples recent activity.
-
-At sprint end: ask two teammates cold what the oldest thing waiting for
-review is. If neither can answer, the delivery problem this bot exists to
-solve is still real, and the daily post (`src/core/render/daily.ts`) must be
-confirmed working before `/review-request` is enabled.
+It isn't tracked, by design: the bot doesn't read channel messages. Point them
+at `/review-request`. If it becomes a habit, a Discord AutoMod rule (a server
+setting, not bot code) can block PR links in the channel and show the sender a
+private note pointing at the command. The cost is that it also blocks links
+people post to discuss a PR, which is why it isn't on by default.
 
 ### Reaction claims (refresh-loop step 8)
 
@@ -227,13 +230,6 @@ confirmed working before `/review-request` is enabled.
   been deleted or re-uploaded with a new id. The reaction path is disabled until
   the snowflake in `config/config.ts` is updated. Nothing else is affected and
   no state is damaged.
-- **Shadow mode never rotates the poll set.** `reactionCheckedAt` — the
-  oldest-unchecked-first sort key step 8 polls by — is only written through
-  `finishTick`, which read-only mode never calls. Under `READ_ONLY`, step 8
-  polls the same first `allowance` records every tick, forever. A shadow-mode
-  log showing reaction reads succeeding is not proof the whole selection cycle
-  (rotating through every eligible record) works — only a live run exercises
-  that.
 - **`[REACTIONS] full page on <messageId>` means that record's reactions have
   stopped being readable.** `readReactors` asks for 25 (`REACTION_READ_LIMIT`),
   and a page that comes back full may have been cut short. Discord orders

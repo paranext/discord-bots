@@ -4,7 +4,6 @@ import { CredentialProvider } from "./github/credentials.js";
 import { handleHealth } from "./handlers/health.js";
 import { handleInteraction } from "./handlers/interactions.js";
 import { runTick } from "./handlers/scheduled.js";
-import { assertMessageContentIntent } from "./handlers/startup.js";
 import { RecordsObject } from "./store/do.js";
 import type { Store } from "./store/types.js";
 
@@ -48,23 +47,6 @@ function credentialsFor(env: Env): CredentialProvider {
   return credentials.provider;
 }
 
-/**
- * Shadow mode is the last checkpoint before the bot writes to a real channel,
- * and a posted Discord message has no undo — so this gate must not fail open on
- * a spelling. `READ_ONLY === "true"` alone treats `True`, `TRUE` and a pasted
- * `"true "` as "go live", silently, at the step the runbook promises writes
- * nothing.
- *
- * Anything unrecognised is also treated as read-only: on this one setting the
- * safe reading of an unclear answer is "don't write". Only the explicit,
- * recognised off-spellings turn writing on.
- */
-export function isReadOnly(raw: string | undefined): boolean {
-  const value = (raw ?? "").trim().toLowerCase();
-  if (value === "false" || value === "0" || value === "no" || value === "off" || value === "") return false;
-  return true;
-}
-
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -102,38 +84,13 @@ export default {
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    const rest = new DiscordRest(env.DISCORD_BOT_TOKEN);
-
-    // Falsifiable, and checked every tick rather than only at deploy: someone can
-    // turn the intent off in the portal at any time, and the symptom is silence.
-    const intent = await assertMessageContentIntent(rest);
-    if (!intent.ok) {
-      console.error(`[${intent.code}] ${intent.detail}`);
-      if (intent.code === "INTENT_MISSING") return;
-    } else if (intent.limited) {
-      // `assertMessageContentIntent` distinguishes the two message-content
-      // application flags and this is the only place the distinction is
-      // observable. Both are accepted — the abort behaviour is unchanged — but an
-      // operator debugging an empty digest needs to know WHICH one this app has:
-      // "the intent is on" and "the limited variant is on" are different
-      // configurations in the Developer Portal, and only the log can tell them
-      // apart.
-      console.warn(
-        "[INTENT_LIMITED] MESSAGE CONTENT is enabled through the LIMITED application " +
-          "flag; the full flag is not set. Scanning proceeds. If the digest is " +
-          "unexpectedly empty, check Developer Portal → Bot → Privileged Gateway " +
-          "Intents before looking anywhere else.",
-      );
-    }
-
     const report = await runTick({
       store: storeFor(env),
-      rest,
+      rest: new DiscordRest(env.DISCORD_BOT_TOKEN),
       credentials: credentialsFor(env),
       config,
       botUserId: env.DISCORD_BOT_USER_ID,
       now: Date.now(),
-      readOnly: isReadOnly(env.READ_ONLY),
     });
 
     console.log(JSON.stringify({ tick: report }));

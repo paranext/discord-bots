@@ -38,26 +38,3 @@ export function parsePrUrl(raw: string): ParseResult {
 
   return { ok: true, pr: { owner, repo, number: Number(numberRaw) } };
 }
-
-export function isAllowlisted(pr: ParsedPr, allowlist: string[]): boolean {
-  const target = `${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}`;
-  return allowlist.some((entry) => entry.toLowerCase() === target);
-}
-
-/**
- * Pulls every distinct GitHub PR link out of a chat message.
- * Deliberately permissive about surrounding punctuation and markdown: people paste
- * links inside parentheses and sentences, and a link missed here is a row missing
- * from the digest during shadow mode.
- */
-const URL_CANDIDATE = /https?:\/\/[^\s<>()[\]"'`]+/gi;
-
-export function extractPrUrls(text: string): ParsedPr[] {
-  const seen = new Map<string, ParsedPr>();
-  for (const match of text.matchAll(URL_CANDIDATE)) {
-    const candidate = match[0].replace(/[.,;:!?]+$/, "");
-    const parsed = parsePrUrl(candidate);
-    if (parsed.ok) seen.set(prSlug(parsed.pr), parsed.pr);
-  }
-  return [...seen.values()];
-}

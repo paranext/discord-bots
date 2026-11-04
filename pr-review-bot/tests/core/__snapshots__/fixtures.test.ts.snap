@@ -421,108 +421,6 @@ __Simple__
 }
 `;
 
-exports[`fixture scenarios > matches the stored snapshot for 'shadow' 1`] = `
-{
-  "bodyHash": "775a904b",
-  "components": [
-    {
-      "components": [
-        {
-          "custom_id": "digest:claim",
-          "options": [
-            {
-              "description": "paranext-core#2695",
-              "label": "PT-4363 Internet Settings UI Enhancements",
-              "value": "paranext/paranext-core/2695:1787500800000",
-            },
-            {
-              "description": "paratext-10-studio#177",
-              "label": "PT-4398 P10 backend sync-activity signal",
-              "value": "paranext/paratext-10-studio/177:1787932800000",
-            },
-            {
-              "description": "scripture-editors#341",
-              "label": "Fix marker parsing for \\fig",
-              "value": "eten-tech-foundation/scripture-editors/341:1788019200000",
-            },
-            {
-              "description": "paranext-core#2708",
-              "label": "PT-4412 Registration dot placement",
-              "value": "paranext/paranext-core/2708:1788105600000",
-            },
-            {
-              "description": "paratext-assistant#88",
-              "label": "PT-4390 Assistant streaming errors",
-              "value": "paranext/paratext-assistant/88:1788174000000",
-            },
-          ],
-          "placeholder": "Claim a PR",
-          "type": 3,
-        },
-      ],
-      "type": 1,
-    },
-    {
-      "components": [
-        {
-          "custom_id": "digest:resolve",
-          "options": [
-            {
-              "description": "paranext-core#2695",
-              "label": "PT-4363 Internet Settings UI Enhancements",
-              "value": "paranext/paranext-core/2695:1787500800000",
-            },
-            {
-              "description": "paratext-10-studio#177",
-              "label": "PT-4398 P10 backend sync-activity signal",
-              "value": "paranext/paratext-10-studio/177:1787932800000",
-            },
-            {
-              "description": "scripture-editors#341",
-              "label": "Fix marker parsing for \\fig",
-              "value": "eten-tech-foundation/scripture-editors/341:1788019200000",
-            },
-            {
-              "description": "paranext-core#2708",
-              "label": "PT-4412 Registration dot placement",
-              "value": "paranext/paranext-core/2708:1788105600000",
-            },
-            {
-              "description": "paratext-assistant#88",
-              "label": "PT-4390 Assistant streaming errors",
-              "value": "paranext/paratext-assistant/88:1788174000000",
-            },
-          ],
-          "placeholder": "Resolve",
-          "type": 3,
-        },
-      ],
-      "type": 1,
-    },
-  ],
-  "droppedCount": 0,
-  "embeds": [
-    {
-      "color": 5793266,
-      "description": "**Needs review** · 5 open · updated <t:1788192000:R>
-**Needs triage**
-[PT-4363 Internet Settings UI Enhancements](https://github.com/paranext/paranext-core/pull/2695) · <t:1787500800:R>
-     paranext-core#2695
-[PT-4398 P10 backend sync-activity signal](https://github.com/paranext/paratext-10-studio/pull/177) · <t:1787932800:R>
-     paratext-10-studio#177
-[Fix marker parsing for \\fig](https://github.com/eten-tech-foundation/scripture-editors/pull/341) · <t:1788019200:R>
-     scripture-editors#341
-[PT-4412 Registration dot placement](https://github.com/paranext/paranext-core/pull/2708) · <t:1788105600:R>
-     paranext-core#2708
-[PT-4390 Assistant streaming errors](https://github.com/paranext/paratext-assistant/pull/88) · <t:1788174000:R>
-     paratext-assistant#88",
-    },
-  ],
-  "openCount": 5,
-  "renderedCount": 5,
-}
-`;
-
 exports[`fixture scenarios > matches the stored snapshot for 'stale' 1`] = `
 {
   "bodyHash": "a129e40e",
@@ -600,5 +498,96 @@ paratext-assistant#88 — cleared by Jolie · <t:1788190500:R>",
   ],
   "openCount": 2,
   "renderedCount": 2,
+}
+`;
+
+exports[`fixture scenarios > matches the stored snapshot for 'triage' 1`] = `
+{
+  "bodyHash": "10c9101d",
+  "components": [
+    {
+      "components": [
+        {
+          "custom_id": "digest:claim",
+          "options": [
+            {
+              "description": "paranext-core#2701 · Power",
+              "label": "PT-4401 Sync activity indicator",
+              "value": "paranext/paranext-core/2701:1788170400000",
+            },
+            {
+              "description": "paratext-10-studio#177 · Retired",
+              "label": "🔥 PT-4398 P10 backend sync-activity signal",
+              "value": "paranext/paratext-10-studio/177:1787932800000",
+            },
+            {
+              "description": "paranext-core#2708 · Retired",
+              "label": "PT-4412 Registration dot placement",
+              "value": "paranext/paranext-core/2708:1788105600000",
+            },
+            {
+              "description": "scripture-editors#341 · Retired",
+              "label": "🧊 Fix marker parsing for \\fig",
+              "value": "eten-tech-foundation/scripture-editors/341:1788019200000",
+            },
+          ],
+          "placeholder": "Claim a PR",
+          "type": 3,
+        },
+      ],
+      "type": 1,
+    },
+    {
+      "components": [
+        {
+          "custom_id": "digest:resolve",
+          "options": [
+            {
+              "description": "paranext-core#2701 · Power",
+              "label": "PT-4401 Sync activity indicator",
+              "value": "paranext/paranext-core/2701:1788170400000",
+            },
+            {
+              "description": "paratext-10-studio#177 · Retired",
+              "label": "🔥 PT-4398 P10 backend sync-activity signal",
+              "value": "paranext/paratext-10-studio/177:1787932800000",
+            },
+            {
+              "description": "paranext-core#2708 · Retired",
+              "label": "PT-4412 Registration dot placement",
+              "value": "paranext/paranext-core/2708:1788105600000",
+            },
+            {
+              "description": "scripture-editors#341 · Retired",
+              "label": "🧊 Fix marker parsing for \\fig",
+              "value": "eten-tech-foundation/scripture-editors/341:1788019200000",
+            },
+          ],
+          "placeholder": "Resolve",
+          "type": 3,
+        },
+      ],
+      "type": 1,
+    },
+  ],
+  "droppedCount": 0,
+  "embeds": [
+    {
+      "color": 5793266,
+      "description": "**Needs review** · 4 open · updated <t:1788192000:R>
+__Power__
+Soon · [PT-4401 Sync activity indicator](https://github.com/paranext/paranext-core/pull/2701) · <t:1788170400:R>
+     paranext-core#2701
+**Needs triage**
+🔥 Blocking · [PT-4398 P10 backend sync-activity signal](https://github.com/paranext/paratext-10-studio/pull/177) · <t:1787932800:R>
+     paratext-10-studio#177
+Soon · [PT-4412 Registration dot placement](https://github.com/paranext/paranext-core/pull/2708) · <t:1788105600:R>
+     paranext-core#2708
+🧊 This week · [Fix marker parsing for \\fig](https://github.com/eten-tech-foundation/scripture-editors/pull/341) · <t:1788019200:R>
+     scripture-editors#341",
+    },
+  ],
+  "openCount": 4,
+  "renderedCount": 4,
 }
 `;

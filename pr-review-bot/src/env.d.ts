@@ -32,8 +32,6 @@ declare global {
       GITHUB_APP_INSTALLATION_ID: string;
       GITHUB_APP_PRIVATE_KEY: string;
       GITHUB_PUBLIC_TOKEN: string;
-      /** "true" runs the full loop against live data and writes nothing. */
-      READ_ONLY?: string;
       /** Shared secret for `GET /health`. Unset means /health is disabled — see
        *  `handleHealth`. */
       HEALTH_TOKEN?: string;

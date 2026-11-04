@@ -1,6 +1,6 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import worker, { isReadOnly } from "../../src/index.js";
+import worker from "../../src/index.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -80,11 +80,11 @@ function urlOf(input: string | URL | Request): string {
 async function seedOpenRecord(owner: string, repo: string, number: number): Promise<void> {
   const stub = env.RECORDS.get(env.RECORDS.idFromName("v1"));
   await stub.apply(
-    [{ kind: "upsertScanned", now: Date.now(), input: {
-        pr: { owner, repo, number },
-        channelId: "chan", messageId: "msg", messageTimestamp: Date.now() - 3_600_000,
-        title: `${repo}#${number}`, prAuthorLogin: "someone-else", isDraft: false,
-      } }],
+    [{ kind: "upsertRequest",
+       pr: { owner, repo, number },
+       at: Date.now() - 3_600_000,
+       fields: { team: "Power", urgency: "soon", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+       title: `${repo}#${number}`, prAuthorLogin: "someone-else", isDraft: false }],
     { now: Date.now(), rerender: false },
   );
 }
@@ -152,181 +152,45 @@ describe("fetch", () => {
 });
 
 describe("scheduled", () => {
-  it("aborts before any channel read or GitHub call when the intent is missing", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      calls.push(url);
-      if (url.includes("/applications/@me")) {
-        return new Response(JSON.stringify({ id: "a", flags: 0 }), { status: 200 });
-      }
-      return new Response("[]", { status: 200 });
-    });
-
-    const ctx = createExecutionContext();
-    await worker.scheduled(createScheduledController(), env, ctx);
-    await waitOnExecutionContext(ctx);
-
-    // Only the intent check itself may have called fetch (GET /applications/@me).
-    // No channel message reads and no GitHub calls happened at all.
-    expect(calls.filter((c) => c.includes("/messages"))).toHaveLength(0);
-    expect(calls.filter((c) => c.includes("api.github.com"))).toHaveLength(0);
-    expect(calls.filter((c) => c.includes("/applications/@me"))).toHaveLength(1);
-  });
-
-  it("proceeds to runTick when the intent is present", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      calls.push(url);
-      if (url.includes("/applications/@me")) {
-        return new Response(JSON.stringify({ id: "a", flags: 1 << 18 }), { status: 200 });
-      }
-      if (url.includes("/messages/pins")) {
-        return new Response(JSON.stringify({ items: [] }), { status: 200 });
-      }
-      return new Response("[]", { status: 200 });
-    });
-
-    const ctx = createExecutionContext();
-    await worker.scheduled(createScheduledController(), env, ctx);
-    await waitOnExecutionContext(ctx);
-
-    // With the intent present, the tick runs past the assertion. This store
-    // starts empty (no open records), so runTick's own guard skips fetchSnapshots
-    // regardless — the point here is only that the intent check did not abort
-    // the tick, not that a GitHub call necessarily happened.
-    expect(calls.filter((c) => c.includes("/applications/@me"))).toHaveLength(1);
-  });
-
-  it("names the LIMITED message-content flag in the log, and still runs the tick (finding 11)", async () => {
-    // `assertMessageContentIntent` distinguishes the two flags; before this, the
-    // caller dropped the distinction and an operator whose app has the limited
-    // variant could not tell from the logs which configuration was live. Both
-    // still proceed — the abort behaviour is unchanged, which is the half of this
-    // that must NOT regress.
-    const warnings: unknown[][] = [];
-    const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => { warnings.push(args); });
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = urlOf(input);
-      calls.push(url);
-      // The LIMITED flag (1 << 19), not the full one (1 << 18).
-      if (url.includes("/applications/@me")) {
-        return new Response(JSON.stringify({ id: "a", flags: 1 << 19 }), { status: 200 });
-      }
-      if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
-      return new Response("[]", { status: 200 });
-    });
-
-    const ctx = createExecutionContext();
-    await worker.scheduled(createScheduledController(), env, ctx);
-    await waitOnExecutionContext(ctx);
-    spy.mockRestore();
-
-    const logged = warnings.map((a) => a.join(" ")).join("\n");
-    expect(logged).toContain("INTENT_LIMITED");
-    expect(logged).toContain("LIMITED");
-    // Not aborted: the tick read the channel, exactly as it does with the full flag.
-    expect(calls.filter((c) => c.includes("/messages")).length).toBeGreaterThan(0);
-  });
-
-  // The other side of the distinction. A warning that fires unconditionally
-  // would satisfy the test above and teach every operator to ignore it. Both
-  // cases are here because `!full && limited` reads the full flag as the
-  // deciding one, and an app with BOTH set is a real configuration — the
-  // warning's own text says "the full flag is not set", so firing it there
-  // would be a lie about the app's state.
-  it.each([
-    { name: "the FULL flag is set", flags: 1 << 18 },
-    { name: "BOTH flags are set", flags: (1 << 18) | (1 << 19) },
-  ])("says nothing about a limited intent when $name", async ({ flags }) => {
-    const warnings: unknown[][] = [];
-    const spy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => { warnings.push(args); });
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = urlOf(input);
-      if (url.includes("/applications/@me")) {
-        return new Response(JSON.stringify({ id: "a", flags }), { status: 200 });
-      }
-      if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
-      return new Response("[]", { status: 200 });
-    });
-
-    const ctx = createExecutionContext();
-    await worker.scheduled(createScheduledController(), env, ctx);
-    await waitOnExecutionContext(ctx);
-    spy.mockRestore();
-
-    expect(warnings.map((a) => a.join(" ")).join("\n")).not.toContain("INTENT_LIMITED");
-  });
-});
-
-describe("isReadOnly", () => {
-  // Shadow mode is the last checkpoint before the bot writes to a real channel,
-  // and a posted Discord message has no undo. `=== "true"` treated every one of
-  // these as "go live", silently.
-  it.each(["true", "True", "TRUE", " true ", "1", "yes", "on", "TrUe\n"])(
-    "enables read-only for %o",
-    (value) => {
-      expect(isReadOnly(value)).toBe(true);
-    },
-  );
-
-  it.each(["false", "False", "FALSE", " false ", "0", "no", "off", "", "   "])(
-    "allows writing for %o",
-    (value) => {
-      expect(isReadOnly(value)).toBe(false);
-    },
-  );
-
-  it("treats an absent value as live, which is what an un-set secret means", () => {
-    expect(isReadOnly(undefined)).toBe(false);
-  });
-
-  it("treats an unrecognised value as read-only rather than choosing the destructive default", () => {
-    expect(isReadOnly("flase")).toBe(true);
-    expect(isReadOnly("shadow")).toBe(true);
-  });
-});
-
-describe("the READ_ONLY gate, wired up", () => {
-  it('runs shadow mode for READ_ONLY="True", which the strict comparison sent live', async () => {
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = urlOf(input);
-      if (url.includes("/applications/@me")) return new Response(JSON.stringify({ id: "a", flags: 1 << 18 }), { status: 200 });
-      if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
-      return new Response("[]", { status: 200 });
-    });
-    const logs: string[] = [];
-    const spy = vi.spyOn(console, "log").mockImplementation((message: string) => { logs.push(message); });
-
-    const ctx = createExecutionContext();
-    await worker.scheduled(createScheduledController(), { ...env, READ_ONLY: "True" }, ctx);
-    await waitOnExecutionContext(ctx);
-    spy.mockRestore();
-
-    expect(logs.join("\n")).toContain("[read-only] would render:");
-  });
-
-  it("goes live when READ_ONLY is absent, so the gate is not stuck closed", async () => {
+  /** The stub the replaced tests used, minus the /applications/@me branch. Records
+   *  every call so a test can see what the tick reached. */
+  function stubDiscord(calls: { url: string; method: string }[]): void {
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input);
-      if (url.includes("/applications/@me")) return new Response(JSON.stringify({ id: "a", flags: 1 << 18 }), { status: 200 });
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
       if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
-      if (url.includes("/messages") && (init?.method ?? "GET") === "POST") {
+      if (url.includes("/messages") && method === "POST") {
         return new Response(JSON.stringify({ id: "digest-live" }), { status: 200 });
       }
       return new Response("[]", { status: 200 });
     });
-    const logs: string[] = [];
-    const spy = vi.spyOn(console, "log").mockImplementation((message: string) => { logs.push(message); });
+  }
+
+  it("never calls GET /applications/@me", async () => {
+    const calls: { url: string; method: string }[] = [];
+    stubDiscord(calls);
 
     const ctx = createExecutionContext();
     await worker.scheduled(createScheduledController(), env, ctx);
     await waitOnExecutionContext(ctx);
-    spy.mockRestore();
 
-    expect(logs.join("\n")).not.toContain("[read-only] would render:");
+    expect(calls.filter((c) => c.url.includes("/applications/@me"))).toHaveLength(0);
+  });
+
+  it("writes even when a READ_ONLY variable is still set from an old deploy", async () => {
+    const calls: { url: string; method: string }[] = [];
+    stubDiscord(calls);
+    // An open record, so the digest has something to render and post.
+    await seedOpenRecord("eten-tech-foundation", "scripture-editors", 1);
+
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController(), { ...env, READ_ONLY: "true" } as typeof env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    // The tick reached finishTick: the digest message was written.
+    const writes = calls.filter((c) => c.url.includes("/messages/") && (c.method === "PATCH" || c.method === "POST"));
+    expect(writes.length).toBeGreaterThan(0);
   });
 });
 
@@ -343,7 +207,6 @@ describe("the credential provider across invocations", () => {
     // which is the field `docs/operations.md` routes its main diagnosis through.
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input);
-      if (url.includes("/applications/@me")) return new Response(JSON.stringify({ id: "a", flags: 1 << 18 }), { status: 200 });
       if (url.includes("api.github.com/graphql")) return new Response("{}", { status: 401 });
       if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
       if (url.includes("/messages") && (init?.method ?? "GET") === "POST") {
@@ -373,7 +236,6 @@ describe("the credential provider across invocations", () => {
     // this test ran alone or were reordered ahead of that one.
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input);
-      if (url.includes("/applications/@me")) return new Response(JSON.stringify({ id: "a", flags: 1 << 18 }), { status: 200 });
       if (url.includes("api.github.com/graphql")) return new Response("{}", { status: 401 });
       if (url.includes("/messages/pins")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
       if (url.includes("/messages") && (init?.method ?? "GET") === "POST") {
@@ -410,7 +272,6 @@ describe("the credential provider across invocations", () => {
     const mints: string[] = [];
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input);
-      if (url.includes("/applications/@me")) return new Response(JSON.stringify({ id: "a", flags: 1 << 18 }), { status: 200 });
       if (url.includes("/access_tokens")) {
         mints.push(url);
         return new Response(

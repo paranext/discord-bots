@@ -24,8 +24,7 @@ export interface MenuOption {
   description: string;
 }
 
-/** Null urgency ranks below every level: every scanned row has none, so during
- *  shadow mode this rule decides the entire list. */
+/** Null urgency ranks below every level. */
 export function urgencyRank(urgency: UrgencyKey | null, config: Config): number {
   if (urgency === null) return Number.MAX_SAFE_INTEGER;
   return urgencyLevel(urgency, config)?.rank ?? Number.MAX_SAFE_INTEGER - 1;
