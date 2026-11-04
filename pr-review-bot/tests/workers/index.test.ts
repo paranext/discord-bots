@@ -114,6 +114,15 @@ describe("fetch", () => {
     expect(unconfigured.status).toBe(404);
   });
 
+  it("405s a non-GET /stats", async () => {
+    const response = await worker.fetch(
+      new Request("https://bot/stats", { method: "POST", headers: { Authorization: "Bearer stats-secret" } }),
+      { ...env, STATS_TOKEN: "stats-secret" } as unknown as Env,
+      fetchCtx(),
+    );
+    expect(response.status).toBe(405);
+  });
+
   it("405s a non-GET /health", async () => {
     const response = await worker.fetch(
       new Request("https://bot/health", { method: "POST", headers: { Authorization: `Bearer ${HEALTH_TOKEN}` } }),

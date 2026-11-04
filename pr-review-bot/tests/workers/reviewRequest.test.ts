@@ -43,6 +43,8 @@ const OPEN_SNAPSHOT: PrSnapshot = {
   isDraft: false,
   authorLogin: "jolie",
   reviews: [],
+  mergedAt: null,
+  closedAt: null,
 };
 
 const secrets = { appId: "1", appInstallationId: "2", appPrivateKeyPem: "unused", publicToken: "ghp_public" };

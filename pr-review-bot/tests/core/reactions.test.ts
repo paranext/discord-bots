@@ -100,6 +100,14 @@ describe("syncReactions", () => {
     expect(outcome.record.claimClearedAt).toBeNull();
   });
 
+  it("counts a reaction release of a claim held an hour as a drop", () => {
+    const held = record(1, {
+      lastReactors: ["u1"], claimedBy: "u1", claimedByName: "Katherine",
+      claimedAt: T0, claimSource: "reaction",
+    });
+    expect(syncReactions(held, [], T0 + HOUR).record.roundClaimsDropped).toBe(1);
+  });
+
   it("does not release a MENU claim when a reaction disappears", () => {
     const held = record(1, {
       lastReactors: ["u1"], claimedBy: "u1", claimedByName: "Katherine",

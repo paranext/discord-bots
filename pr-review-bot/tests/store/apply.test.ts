@@ -3,7 +3,8 @@ import { config } from "../../config/config.js";
 import { applyCommands, emptyState } from "../../src/store/apply.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type StoreState } from "../../src/store/types.js";
 import type { PrSnapshot } from "../../src/core/exit.js";
-import { resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { newCommandRecord, resolveRecord, type PrRecord } from "../../src/core/record.js";
+import { emptyStats } from "../../src/core/stats/types.js";
 import { testRecord } from "../../fixtures/records.js";
 import { recordId } from "../../src/core/record.js";
 import type { RequestFields } from "../../src/core/record.js";
@@ -51,6 +52,8 @@ function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
     isDraft: false,
     authorLogin: "jolie",
     reviews: [],
+    mergedAt: null,
+    closedAt: null,
     ...overrides,
   };
 }
@@ -230,21 +233,30 @@ describe("claim conflicts", () => {
 describe("unclaim", () => {
   it("releases a claim the actor holds", () => {
     const held = withRecord({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    const out = run(held, { kind: "unclaim", id: ID, userId: "u1" });
+    const out = run(held, { kind: "unclaim", id: ID, userId: "u1", at: T0 + 2 * HOUR });
     expect(out.results[0]).toEqual({ kind: "ok" });
     expect(out.state.records[ID]?.claimedBy).toBeNull();
     expect(out.state.records[ID]?.claimedAt).toBeNull();
   });
 
+  it("releases without counting a drop when `at` is missing (old-build worker mid-deploy)", () => {
+    const held = withRecord({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
+    const command = { kind: "unclaim", id: ID, userId: "u1" } as unknown as Command;
+    const out = run(held, command);
+    expect(out.results[0]).toEqual({ kind: "ok" });
+    expect(out.state.records[ID]?.claimedBy).toBeNull();
+    expect(out.state.records[ID]?.roundClaimsDropped).toBe(0);
+  });
+
   it("refuses to release someone else's claim and names the holder", () => {
     const held = withRecord({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    const out = run(held, { kind: "unclaim", id: ID, userId: "u2" });
+    const out = run(held, { kind: "unclaim", id: ID, userId: "u2", at: T0 + HOUR });
     expect(out.results[0]).toEqual({ kind: "already-claimed", byName: "Katherine" });
     expect(out.state.records[ID]?.claimedBy).toBe("u1");
   });
 
   it("returns not-found for an unknown id rather than throwing", () => {
-    const out = run(emptyState(), { kind: "unclaim", id: ID, userId: "u1" });
+    const out = run(emptyState(), { kind: "unclaim", id: ID, userId: "u1", at: T0 + 2 * HOUR });
     expect(out.results[0]).toEqual({ kind: "not-found" });
   });
 });
@@ -304,6 +316,128 @@ describe("purgeResolved", () => {
     const recent = withRecord({ resolvedAt: T0 - 5 * DAY, resolvedBy: "merged" });
     const out = applyCommands(recent, [{ kind: "purgeResolved", now: T0 }], config);
     expect(Object.keys(out.state.records)).toHaveLength(1);
+  });
+});
+
+describe("foldStats", () => {
+  const TUE_MIDNIGHT = Date.UTC(2026, 10, 3, 0);
+  const entry = {
+    id: 7,
+    week: "2026-W44",
+    outcome: "reviewed" as const,
+    waitToClaimMs: null,
+    claimToDoneMs: null,
+    totalMs: HOUR,
+    claimed: false,
+    claimsDropped: 0,
+    reRequests: 0,
+  };
+
+  it("folds closed weeks, nulls the record's link and reports the count", () => {
+    const base = withRecord({ roundPendingEntryId: 7 });
+    const seeded = { ...base, stats: { ...base.stats, sinceWeek: "2026-W40", pending: [entry] } };
+    const out = run(seeded, { kind: "foldStats", now: TUE_MIDNIGHT });
+    expect(out.results[0]).toEqual({ kind: "count", count: 1 });
+    expect(out.state.records[ID]?.roundPendingEntryId).toBeNull();
+    expect(out.state.stats.pending).toEqual([]);
+    expect(out.state.stats.weeks["2026-W44"]?.outcomes.reviewed).toBe(1);
+  });
+
+  it("leaves links to entries that are still pending", () => {
+    const base = withRecord({ roundPendingEntryId: 8 });
+    const open = { ...entry, id: 8, week: "2026-W45" };
+    const seeded = { ...base, stats: { ...base.stats, sinceWeek: "2026-W40", pending: [open] } };
+    const out = run(seeded, { kind: "foldStats", now: TUE_MIDNIGHT });
+    expect(out.results[0]).toEqual({ kind: "count", count: 0 });
+    expect(out.state.records[ID]?.roundPendingEntryId).toBe(8);
+  });
+
+  it("does not count a pre-sinceWeek entry it drops unfolded", () => {
+    const base = withRecord({ roundPendingEntryId: 7 });
+    const seeded = { ...base, stats: { ...base.stats, sinceWeek: "2026-W45", pending: [entry] } };
+    const out = run(seeded, { kind: "foldStats", now: TUE_MIDNIGHT });
+    expect(out.results[0]).toEqual({ kind: "count", count: 0 });
+    expect(out.state.stats.pending).toEqual([]);
+    expect(out.state.records[ID]?.roundPendingEntryId).toBeNull();
+  });
+});
+
+describe("foldStats scrubs round timing", () => {
+  const ROUND = {
+    roundStartedAt: T0,
+    roundFirstClaimedAt: T0 + HOUR,
+    roundClaimsDropped: 2,
+    roundReRequests: 1,
+    roundPendingEntryId: 9,
+  };
+  const SCRUBBED = {
+    roundStartedAt: null,
+    roundFirstClaimedAt: null,
+    roundClaimsDropped: 0,
+    roundReRequests: 0,
+    roundPendingEntryId: null,
+  };
+  const RESOLVED_AT = T0 + 2 * HOUR;
+  // A tick after the first fold, so only the scrub can change anything.
+  function collecting(state: StoreState): StoreState {
+    return run(state, { kind: "foldStats", now: T0 }).state;
+  }
+
+  it("keeps a resolved record's round fields inside the reopen window", () => {
+    const state = collecting(withRecord({ ...ROUND, resolvedAt: RESOLVED_AT, resolvedBy: "review by katherine" }));
+    // At exactly the window a reopen is still allowed, so nothing is scrubbed.
+    const out = run(state, { kind: "foldStats", now: RESOLVED_AT + config.reopenWindowMs });
+    expect(out.state.records[ID]).toMatchObject(ROUND);
+    expect(out.state).toBe(state);
+  });
+
+  it("scrubs them once the reopen window has passed", () => {
+    const state = collecting(withRecord({ ...ROUND, resolvedAt: RESOLVED_AT, resolvedBy: "review by katherine" }));
+    const out = run(state, { kind: "foldStats", now: RESOLVED_AT + config.reopenWindowMs + 1 });
+    expect(out.state.records[ID]).toMatchObject(SCRUBBED);
+    expect(out.state.records[ID]?.resolvedBy).toBe("review by katherine");
+    // Nothing left to scrub: the next tick is a no-op on the same object.
+    const again = run(out.state, { kind: "foldStats", now: RESOLVED_AT + config.reopenWindowMs + HOUR });
+    expect(again.state).toBe(out.state);
+  });
+
+  it("leaves an open record's round alone, however old", () => {
+    const state = collecting(withRecord(ROUND));
+    const out = run(state, { kind: "foldStats", now: T0 + 400 * DAY });
+    expect(out.state.records[ID]).toMatchObject(ROUND);
+  });
+
+  it("a scrubbed record re-requested starts a normal round", () => {
+    const state = collecting(withRecord({ ...ROUND, resolvedAt: RESOLVED_AT, resolvedBy: "merged" }));
+    const scrubbed = run(state, { kind: "foldStats", now: RESOLVED_AT + config.reopenWindowMs + 1 });
+    expect(scrubbed.state.records[ID]).toMatchObject(SCRUBBED);
+    const at = RESOLVED_AT + 2 * DAY;
+    const out = run(scrubbed.state, {
+      kind: "upsertRequest",
+      pr: PR,
+      at,
+      fields: FIELDS,
+      title: "PT-4363",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    expect(out.state.records[ID]).toMatchObject({ ...SCRUBBED, roundStartedAt: at, resolvedAt: null });
+  });
+});
+
+describe("reopen after the window", () => {
+  it("refuses a reopen past the reopen window, leaving state alone", () => {
+    const resolved = withRecord({ resolvedAt: T0, resolvedBy: "merged" });
+    const out = run(resolved, { kind: "reopen", id: ID, at: T0 + config.reopenWindowMs + 1 });
+    expect(out.results[0]).toEqual({ kind: "not-open" });
+    expect(out.state).toBe(resolved);
+  });
+
+  it("still reopens at exactly the window", () => {
+    const resolved = withRecord({ resolvedAt: T0, resolvedBy: "merged" });
+    const out = run(resolved, { kind: "reopen", id: ID, at: T0 + config.reopenWindowMs });
+    expect(out.results[0]).toEqual({ kind: "ok" });
+    expect(out.state.records[ID]?.resolvedAt).toBeNull();
   });
 });
 
@@ -592,7 +726,7 @@ describe("reactionSync", () => {
     expect(held.lastReactors).toBeNull();
 
     // Weeks later the menu claim is released while u1 is still reacting.
-    const afterUnclaim = run(out.state, { kind: "unclaim", id: ID, userId: "u9" });
+    const afterUnclaim = run(out.state, { kind: "unclaim", id: ID, userId: "u9", at: T0 + HOUR });
     const primed = run(afterUnclaim.state, {
       kind: "reactionSync", id: ID, reactors: [{ id: "u1", name: "Katherine" }], now: T0 + 1,
     });
@@ -627,5 +761,99 @@ describe("stashSubmission", () => {
     expect(Object.keys(after.state.meta.retryStash)).toHaveLength(config.budgets.retryStashEntries);
     expect(after.state.meta.retryStash["newest"]).toBeDefined();
     expect(after.state.meta.retryStash["k0"]).toBeUndefined();
+  });
+});
+
+describe("schema 7 shapes", () => {
+  it("emptyState starts with empty stats", () => {
+    expect(emptyState().stats).toEqual(emptyStats());
+  });
+
+  it("newCommandRecord opens a round at the request time with zeroed counters", () => {
+    const r = newCommandRecord({ pr: PR, at: T0, fields: FIELDS, title: "t", prAuthorLogin: "a", isDraft: false });
+    expect(r.roundStartedAt).toBe(T0);
+    expect(r.roundFirstClaimedAt).toBeNull();
+    expect(r.roundClaimsDropped).toBe(0);
+    expect(r.roundReRequests).toBe(0);
+    expect(r.roundPendingEntryId).toBeNull();
+  });
+});
+
+describe("review stats entries", () => {
+  // Counter starts at 0 so the first entry's id is 0, independent of emptyStats().
+  function withStats(overrides: Partial<PrRecord> = {}): StoreState {
+    const state = withRecord(overrides);
+    return { ...state, stats: { ...state.stats, nextEntryId: 0 } };
+  }
+  const reviewSnapshot = snapshot({
+    reviews: [{ submittedAt: T0 + HOUR, state: "COMMENTED", authorLogin: "katherine", authorIsBot: false }],
+  });
+  const apply: Command = { kind: "applySnapshot", id: ID, now: T0 + 5 * HOUR, snapshot: reviewSnapshot };
+
+  it("writes one pending entry when a snapshot resolves an open record", () => {
+    const out = run(withStats(), apply);
+    expect(out.state.stats.pending).toHaveLength(1);
+    expect(out.state.stats.nextEntryId).toBe(1);
+    expect(out.state.records[ID]?.roundPendingEntryId).toBe(0);
+    expect(out.state.stats.pending[0]).toMatchObject({ id: 0, outcome: "reviewed", totalMs: HOUR });
+  });
+
+  it("writes nothing for a snapshot on an already-resolved record", () => {
+    const out = run(withStats({ resolvedAt: T0 + HOUR, resolvedBy: "x" }), apply);
+    expect(out.state.stats.pending).toHaveLength(0);
+    expect(out.state.stats.nextEntryId).toBe(0);
+  });
+
+  it("writes a cleared entry measured to the command time on resolve", () => {
+    const out = run(withStats({ roundFirstClaimedAt: T0 + HOUR }), {
+      kind: "resolve",
+      id: ID,
+      at: T0 + 3 * HOUR,
+      by: "Jolie",
+      expectLastRequestedAt: null,
+    });
+    expect(out.state.stats.pending).toHaveLength(1);
+    expect(out.state.stats.pending[0]).toMatchObject({
+      outcome: "cleared",
+      claimToDoneMs: 2 * HOUR,
+      totalMs: 3 * HOUR,
+    });
+    expect(out.state.records[ID]?.roundPendingEntryId).toBe(0);
+  });
+
+  it("withdraws the entry on reopen so a re-resolve leaves one entry", () => {
+    const resolved = run(withStats(), apply);
+    const reopened = run(resolved.state, { kind: "reopen", id: ID, at: T0 + 6 * HOUR });
+    expect(reopened.state.stats.pending).toHaveLength(0);
+    expect(reopened.state.records[ID]?.roundPendingEntryId).toBeNull();
+    const again = run(reopened.state, apply);
+    expect(again.state.stats.pending).toHaveLength(1);
+    expect(again.state.stats.pending[0]?.id).toBe(1);
+  });
+
+  it("withdraws nothing when reopening an already-open record", () => {
+    const resolved = run(withStats(), apply);
+    const next = run(
+      resolved.state,
+      {
+        kind: "upsertRequest",
+        pr: PR,
+        at: T0 + 6 * HOUR,
+        fields: FIELDS,
+        title: "PT-4363",
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      },
+      { kind: "reopen", id: ID, at: T0 + 7 * HOUR },
+    );
+    expect(next.state.stats.pending).toHaveLength(1);
+    expect(next.state.stats.pending[0]?.id).toBe(0);
+  });
+
+  it("writes no entry for a legacy round with no start time", () => {
+    const out = run(withStats({ roundStartedAt: null }), apply);
+    expect(out.state.records[ID]?.resolvedAt).not.toBeNull();
+    expect(out.state.stats.pending).toHaveLength(0);
+    expect(out.state.stats.nextEntryId).toBe(0);
   });
 });

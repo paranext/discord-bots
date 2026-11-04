@@ -6,9 +6,18 @@ import type { PrSnapshot } from "../../src/core/exit.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type DigestPayload, type DigestPublisher, type FinishTickInput, type Store, type StoreState } from "../../src/store/types.js";
 import { migrateState } from "../../src/store/schema.js";
 import { emptyState } from "../../src/store/apply.js";
+import { emptyStats } from "../../src/core/stats/types.js";
 
 const T0 = 1_788_192_000_000; // 2026-08-31T16:00:00Z = 11:00 America/Chicago
 const ID = "paranext/paranext-core/177";
+/** What the 6 -> 7 step stamps on every record: its round was open at deploy. */
+const OPEN_AT_DEPLOY = {
+  roundStartedAt: null,
+  roundFirstClaimedAt: null,
+  roundClaimsDropped: 0,
+  roundReRequests: 0,
+  roundPendingEntryId: null,
+};
 
 function fakePublisher(patches: DigestPayload[]): DigestPublisher {
   return {
@@ -446,6 +455,8 @@ describe("RecordsObject", () => {
       isDraft: false,
       authorLogin: "jolie",
       reviews: [{ submittedAt: T0 - 60_000, state: "APPROVED", authorLogin: "alice", authorIsBot: false }],
+      mergedAt: null,
+      closedAt: null,
     };
     // `resolveAt` is when the snapshot resolves X; it defaults to the tick's own time.
     const tickCommands = (now: number, resolveAt: number = now): Command[] => [
@@ -481,7 +492,7 @@ describe("RecordsObject", () => {
                 { now: t1 + 1_000, rerender: true },
               );
               await live.apply!([{ kind: "reopen", id: xId, at: t1 + 2_000 }], { now: t1 + 2_000, rerender: true });
-              await live.apply!([{ kind: "unclaim", id: zId, userId: "u1" }], { now: t1 + 3_000, rerender: true });
+              await live.apply!([{ kind: "unclaim", id: zId, userId: "u1", at: t1 + 3_000 }], { now: t1 + 3_000, rerender: true });
               hashWhenTickResponded = (await live.readState!()).meta.digestBodyHash;
             }
             return { ok: true };
@@ -847,10 +858,41 @@ describe("RecordsObject", () => {
     expect("prdCache" in migrateState(emptyState() as never).meta).toBe(false);
   });
 
+  it("migrates version 6 state to 7: open records get null round start (no stats entry) and state gains empty stats", () => {
+    const open = {
+      ...testRecord({
+        pr: { owner: "paranext", repo: "paranext-core", number: 5 },
+        channelId: "c",
+        messageId: "m",
+        messageTimestamp: 1_756_000_000_000,
+        title: "PT-5",
+        prAuthorLogin: "jolie",
+        isDraft: false,
+      }),
+      claimedBy: "u9",
+      claimedByName: "Ira",
+      claimedAt: T0,
+      claimSource: "menu" as const,
+    };
+    // A real v6 record has none of the round fields.
+    const { roundStartedAt: _a, roundFirstClaimedAt: _b, roundClaimsDropped: _c, roundReRequests: _d, roundPendingEntryId: _e, ...v6Record } = open;
+    const { stats: _s, ...v6Meta } = emptyState();
+    const v6 = { ...v6Meta, schemaVersion: 6, records: { "paranext/paranext-core/5": v6Record } };
+
+    const migrated = migrateState(v6 as never);
+
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(CURRENT_SCHEMA_VERSION).toBe(7);
+    expect(migrated.records["paranext/paranext-core/5"]).toEqual({ ...v6Record, ...OPEN_AT_DEPLOY });
+    expect(migrated.stats).toEqual(emptyStats());
+    // v7 adds sinceWeek unset: the first fold after deploy decides it.
+    expect(migrated.stats.sinceWeek).toBeNull();
+  });
+
   it("still walks unversioned state all the way to the current version", () => {
     const v0 = { records: {}, meta: { ...emptyState().meta, digestBodyVersion: undefined, scanCursors: { c1: "9" }, scanBackfill: {} } };
     const migrated = migrateState(v0 as never);
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     expect(migrated.meta.digestBodyVersion).toBe(0);
     expect(migrated.meta.retryStash).toEqual({});
@@ -887,10 +929,10 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v5 as never);
 
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(Object.keys(migrated.records)).toEqual(["paranext/paranext-core/2"]);
     // Every field survives except `source`.
-    expect(migrated.records["paranext/paranext-core/2"]).toEqual(commanded);
+    expect(migrated.records["paranext/paranext-core/2"]).toEqual({ ...commanded, ...OPEN_AT_DEPLOY });
     // Tombstones, not deleted: an old-build scan mid-deploy reads
     // `cursors[channelId]` with no fallback and crashes on an absent map.
     expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
@@ -930,12 +972,12 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v6 as never);
 
-    expect(migrated.records).toEqual({ "paranext/paranext-core/2": commanded });
+    expect(migrated.records).toEqual({ "paranext/paranext-core/2": { ...commanded, ...OPEN_AT_DEPLOY } });
     expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
     expect((migrated.meta as { scanBackfill?: unknown }).scanBackfill).toEqual({});
   });
 
-  it("returns already-clean version 6 state without copying it", () => {
+  it("returns already-clean version 7 state without copying it", () => {
     const record = testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 1 },
       channelId: "c",
@@ -945,16 +987,20 @@ describe("RecordsObject", () => {
       prAuthorLogin: "jolie",
       isDraft: false,
     });
-    const v6 = {
-      schemaVersion: 6,
+    // The 6 -> 7 step rebuilds every record, so only state already at 7 can
+    // come through uncopied.
+    const v7 = {
+      schemaVersion: 7,
       records: { "paranext/paranext-core/1": record },
       meta: { ...emptyState().meta, scanCursors: {}, scanBackfill: {} },
+      stats: emptyStats(),
     };
 
-    const migrated = migrateState(v6 as never);
+    const migrated = migrateState(v7 as never);
 
-    expect(migrated.records).toBe(v6.records);
-    expect(migrated.meta).toBe(v6.meta);
+    expect(migrated.records).toBe(v7.records);
+    expect(migrated.meta).toBe(v7.meta);
+    expect(migrated.stats).toBe(v7.stats);
   });
 
   it("starts fresh state without the scan's fields", () => {

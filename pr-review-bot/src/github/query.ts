@@ -30,6 +30,8 @@ export function buildQuery(prs: { alias: string; owner: string; repo: string; nu
       isDraft
       merged
       state
+      mergedAt
+      closedAt
       author { login }
       reviews(last: 20) {
         nodes {
@@ -58,6 +60,8 @@ interface RawPr {
   isDraft: boolean;
   merged: boolean;
   state: string;
+  mergedAt?: string | null;
+  closedAt?: string | null;
   author: { login: string } | null;
   reviews: { nodes: RawReview[] } | null;
 }
@@ -80,6 +84,8 @@ function toSnapshot(slug: string, raw: RawPr): PrSnapshot {
     isDraft: raw.isDraft,
     authorLogin: raw.author?.login ?? null,
     reviews: (raw.reviews?.nodes ?? []).map(toReview),
+    mergedAt: raw.mergedAt ? Date.parse(raw.mergedAt) : null,
+    closedAt: raw.closedAt ? Date.parse(raw.closedAt) : null,
   };
 }
 

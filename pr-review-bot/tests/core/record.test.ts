@@ -43,6 +43,11 @@ function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
     prAuthorLogin: "jolie",
     isDraft: false,
     lastSyncedAt: T0,
+    roundStartedAt: T0,
+    roundFirstClaimedAt: null,
+    roundClaimsDropped: 0,
+    roundReRequests: 0,
+    roundPendingEntryId: null,
     ...overrides,
   };
 }
@@ -120,6 +125,39 @@ describe("markRequested", () => {
     const r = markRequested(commanded(), T0 + HOUR, fields);
     expect(r.lastRequestedAt).toBe(T0 + HOUR);
     expect(r.requestCount).toBe(2);
+  });
+
+  it("counts a re-request on an open record without touching the other round fields", () => {
+    const open = commanded({
+      claimedBy: "u3", claimedByName: "Kat", claimedAt: T0,
+      roundFirstClaimedAt: T0, roundClaimsDropped: 1, roundPendingEntryId: 7,
+    });
+    const r = markRequested(open, T0 + HOUR, fields);
+    expect(r.roundReRequests).toBe(1);
+    expect(r.roundStartedAt).toBe(T0);
+    expect(r.roundFirstClaimedAt).toBe(T0);
+    expect(r.roundClaimsDropped).toBe(1);
+    expect(r.roundPendingEntryId).toBe(7);
+    expect(r.claimedBy).toBeNull();
+  });
+
+  it("leaves a null roundStartedAt null on an open record", () => {
+    const r = markRequested(commanded({ roundStartedAt: null }), T0 + HOUR, fields);
+    expect(r.roundStartedAt).toBeNull();
+  });
+
+  it("starts a fresh round on a resolved record", () => {
+    const resolved = resolveRecord(
+      commanded({ roundFirstClaimedAt: T0, roundClaimsDropped: 2, roundReRequests: 3, roundPendingEntryId: 9 }),
+      T0 + HOUR,
+      "review by Katherine",
+    );
+    const r = markRequested(resolved, T0 + 2 * HOUR, fields);
+    expect(r.roundStartedAt).toBe(T0 + 2 * HOUR);
+    expect(r.roundFirstClaimedAt).toBeNull();
+    expect(r.roundClaimsDropped).toBe(0);
+    expect(r.roundReRequests).toBe(0);
+    expect(r.roundPendingEntryId).toBeNull();
   });
 
   it("never changes firstRequestedAt, so re-requesting is not penalised in the sort", () => {

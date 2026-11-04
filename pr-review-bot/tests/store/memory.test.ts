@@ -442,6 +442,8 @@ describe("lost-update ordering", () => {
       isDraft: false,
       authorLogin: "jolie",
       reviews: [{ submittedAt: T0 - MINUTE, state: "APPROVED", authorLogin: "alice", authorIsBot: false }],
+      mergedAt: null,
+      closedAt: null,
     };
     // `resolveAt` is when the snapshot resolves X; it defaults to the tick's own time.
     const tickCommands = (now: number, resolveAt: number = now): Command[] => [
@@ -513,7 +515,7 @@ describe("lost-update ordering", () => {
       { now: t1 + 1_000, rerender: true },
     );
     await store.apply([{ kind: "reopen", id: xId, at: t1 + 2_000 }], { now: t1 + 2_000, rerender: true });
-    await store.apply([{ kind: "unclaim", id: zId, userId: "u1" }], { now: t1 + 3_000, rerender: true });
+    await store.apply([{ kind: "unclaim", id: zId, userId: "u1", at: t1 + 3_000 }], { now: t1 + 3_000, rerender: true });
 
     const beforeWriteBack = await store.readState();
     // THE ABA PREMISE. Without these two the test proves nothing: the records

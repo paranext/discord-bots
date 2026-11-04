@@ -459,6 +459,32 @@ describe("runTick — housekeeping", () => {
     expect(Object.keys((await store.readState()).records)).toHaveLength(0);
   });
 
+  it("folds closed weeks before purging and reports statsFolded", async () => {
+    stubAll({ graphql: { data: {} } });
+    const { publisher } = makePublisher();
+    const base = seeded([]);
+    const entry = {
+      id: 1, week: "2026-W01", outcome: "reviewed" as const, waitToClaimMs: null, claimToDoneMs: null,
+      totalMs: DAY, claimed: false, claimsDropped: 0, reRequests: 0,
+    };
+    // sinceWeek set, so the entry is really folded rather than dropped as
+    // pre-collection (which statsFolded does not count).
+    const store = new MemoryStore(config, publisher, {
+      ...base,
+      stats: { ...base.stats, sinceWeek: "2026-W01", pending: [entry] },
+    });
+    const finish = vi.spyOn(store, "finishTick");
+
+    const report = await runTick(deps(store));
+
+    const kinds = (finish.mock.calls[0]![0] as FinishTickInput).commands.map((c) => c.kind);
+    expect(kinds).toContain("foldStats");
+    expect(kinds.indexOf("foldStats")).toBeLessThan(kinds.indexOf("purgeResolved"));
+    expect(report.statsFolded).toBe(1);
+    expect((await store.readState()).stats.pending).toEqual([]);
+    expect((await store.readState()).stats.weeks["2026-W01"]?.outcomes.reviewed).toBe(1);
+  });
+
   it("reports staleClaimsCleared and purged together, each from its own command result", async () => {
     // Both counters non-zero and DISTINCT (2 and 3), so a copy-paste between them
     // cannot pass: the two tests above only ever see a count of 1 each, which

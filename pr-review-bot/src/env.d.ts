@@ -35,6 +35,9 @@ declare global {
       /** Shared secret for `GET /health`. Unset means /health is disabled — see
        *  `handleHealth`. */
       HEALTH_TOKEN?: string;
+      /** Shared secret for `GET /stats`. Unset means /stats is disabled — same
+       *  rule as `HEALTH_TOKEN`. */
+      STATS_TOKEN?: string;
     }
   }
 

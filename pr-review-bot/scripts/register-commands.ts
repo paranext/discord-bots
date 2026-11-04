@@ -13,6 +13,12 @@ const REVIEW_LIST = {
   type: 1,
 };
 
+const REVIEW_STATS = {
+  name: "review-stats",
+  description: "Show anonymous team review stats, privately",
+  type: 1,
+};
+
 const REVIEW_REQUEST = {
   name: "review-request",
   description: "Ask for a review on a pull request",
@@ -27,7 +33,7 @@ if (appId === undefined || guildId === undefined || token === undefined) {
   process.exit(1);
 }
 
-const commands = [REVIEW_LIST, REVIEW_REQUEST];
+const commands = [REVIEW_LIST, REVIEW_STATS, REVIEW_REQUEST];
 
 const response = await fetch(`https://discord.com/api/v10/applications/${appId}/guilds/${guildId}/commands`, {
   method: "PUT",

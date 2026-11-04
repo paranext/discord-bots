@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyClaim, applyUnclaim, clearStaleClaim } from "../../src/core/claims.js";
+import { applyClaim, applyUnclaim, clearStaleClaim, MISTAKEN_RELEASE_MS } from "../../src/core/claims.js";
 import { resolveRecord, type PrRecord } from "../../src/core/record.js";
 import { testRecord } from "../../fixtures/records.js";
 
@@ -65,10 +65,99 @@ describe("applyClaim", () => {
   });
 });
 
+describe("round tracking", () => {
+  it("stamps roundFirstClaimedAt on the first claim and keeps it across a release and re-claim", () => {
+    const first = applyClaim(record(), "u1", "Katherine", T0 + HOUR, "menu");
+    if (first.kind !== "claimed") throw new Error("unreachable");
+    expect(first.record.roundFirstClaimedAt).toBe(T0 + HOUR);
+    const released = applyUnclaim(first.record, "u1", T0 + 3 * HOUR);
+    if (released.kind !== "released") throw new Error("unreachable");
+    const second = applyClaim(released.record, "u2", "Ira", T0 + 5 * HOUR, "menu");
+    if (second.kind !== "claimed") throw new Error("unreachable");
+    expect(second.record.roundFirstClaimedAt).toBe(T0 + HOUR);
+  });
+
+  it("counts a release of a claim held 2h as a drop", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
+    const outcome = applyUnclaim(held, "u1", T0 + 2 * HOUR);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.roundClaimsDropped).toBe(1);
+  });
+
+  it("does not count a release within MISTAKEN_RELEASE_MS", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
+    const outcome = applyUnclaim(held, "u1", T0 + 4 * 60_000);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.roundClaimsDropped).toBe(0);
+    expect(outcome.record.claimedBy).toBeNull();
+  });
+
+  it("forgets the round's first-claim time when that claim is released by mistake", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0, roundFirstClaimedAt: T0 });
+    const outcome = applyUnclaim(held, "u1", T0 + 4 * 60_000);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.roundFirstClaimedAt).toBeNull();
+  });
+
+  it("keeps an earlier real first-claim time when a later claim is released by mistake", () => {
+    const held = record({
+      claimedBy: "u2", claimedByName: "Ira", claimedAt: T0 + 2 * HOUR, roundFirstClaimedAt: T0,
+    });
+    const outcome = applyUnclaim(held, "u2", T0 + 2 * HOUR + 60_000);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.roundFirstClaimedAt).toBe(T0);
+  });
+
+  it("keeps the first-claim time when that claim is released after real use", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0, roundFirstClaimedAt: T0 });
+    const outcome = applyUnclaim(held, "u1", T0 + HOUR);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.roundFirstClaimedAt).toBe(T0);
+  });
+
+  it("counts a release held exactly MISTAKEN_RELEASE_MS", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
+    const outcome = applyUnclaim(held, "u1", T0 + MISTAKEN_RELEASE_MS);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.roundClaimsDropped).toBe(1);
+  });
+
+  it("returns an unclaimed record unchanged and counts nothing", () => {
+    const open = record();
+    const outcome = applyUnclaim(open, "u1", T0 + HOUR);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record).toBe(open);
+    expect(outcome.record.roundClaimsDropped).toBe(0);
+  });
+
+  it("releases without counting a drop, and without NaN, when `at` is missing at runtime", () => {
+    // An old-build worker can send `unclaim` without `at` during a deploy.
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
+    const outcome = applyUnclaim(held, "u1", undefined as unknown as number);
+    if (outcome.kind !== "released") throw new Error("unreachable");
+    expect(outcome.record.claimedBy).toBeNull();
+    expect(outcome.record.roundClaimsDropped).toBe(0);
+  });
+
+  it("counts a stale auto-clear as a drop", () => {
+    const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
+    expect(clearStaleClaim(held, T0 + STALE, STALE).roundClaimsDropped).toBe(1);
+  });
+
+  it("does not count a drop or move the first claim when a record is resolved", () => {
+    const held = record({
+      claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0, roundFirstClaimedAt: T0,
+    });
+    const r = resolveRecord(held, T0 + HOUR, "merged");
+    expect(r.roundClaimsDropped).toBe(0);
+    expect(r.roundFirstClaimedAt).toBe(T0);
+  });
+});
+
 describe("applyUnclaim", () => {
   it("releases a claim you hold", () => {
     const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    const outcome = applyUnclaim(held, "u1");
+    const outcome = applyUnclaim(held, "u1", T0 + HOUR);
     expect(outcome.kind).toBe("released");
     if (outcome.kind !== "released") throw new Error("unreachable");
     expect(outcome.record.claimedBy).toBeNull();
@@ -77,24 +166,24 @@ describe("applyUnclaim", () => {
 
   it("leaves a claim you do not hold alone and names the holder", () => {
     const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    expect(applyUnclaim(held, "u2")).toEqual({ kind: "already-claimed", byName: "Katherine" });
+    expect(applyUnclaim(held, "u2", T0 + HOUR)).toEqual({ kind: "already-claimed", byName: "Katherine" });
   });
 
   it("is a no-op when the record is already unclaimed", () => {
     const open = record();
-    expect(applyUnclaim(open, "u1")).toEqual({ kind: "released", record: open });
+    expect(applyUnclaim(open, "u1", T0 + HOUR)).toEqual({ kind: "released", record: open });
   });
 
   it("falls back to 'someone' when the existing claimer's display name is unknown", () => {
     const held = record({ claimedBy: "u1", claimedByName: null, claimedAt: T0 });
-    expect(applyUnclaim(held, "u2")).toEqual({ kind: "already-claimed", byName: "someone" });
+    expect(applyUnclaim(held, "u2", T0 + HOUR)).toEqual({ kind: "already-claimed", byName: "someone" });
   });
 
   it("does not set previously-claimed markers on a deliberate unclaim", () => {
     // `previously claimed` exists to explain an AUTO-clear. A voluntary release
     // is not a lapse and must not be labelled as one.
     const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0 });
-    const outcome = applyUnclaim(held, "u1");
+    const outcome = applyUnclaim(held, "u1", T0 + HOUR);
     if (outcome.kind !== "released") throw new Error("unreachable");
     expect(outcome.record.lastClaimedByName).toBeNull();
   });
@@ -152,7 +241,7 @@ describe("claimSource", () => {
   it("is cleared by every path that clears the claim", () => {
     const held = record({ claimedBy: "u1", claimedByName: "Katherine", claimedAt: T0, claimSource: "reaction" });
 
-    const unclaimed = applyUnclaim(held, "u1");
+    const unclaimed = applyUnclaim(held, "u1", T0 + HOUR);
     if (unclaimed.kind !== "released") throw new Error("unreachable");
     expect(unclaimed.record.claimSource).toBeNull();
 

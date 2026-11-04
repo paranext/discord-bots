@@ -14,7 +14,9 @@ nothing else:
 - **`POST /interactions`** (`src/handlers/interactions.ts`) — every Discord
   interaction. Verifies Discord's Ed25519 signature (`src/discord/verify.ts`)
   against the app's public key before doing anything else with the body, then
-  routes on interaction type: `ApplicationCommand` for `/review-list` and
+  routes on interaction type: `ApplicationCommand` for `/review-list`,
+  `/review-stats` (a private 4-week summary, any channel,
+  `src/core/stats/figures.ts` and `src/core/render/stats.ts`) and
   `/review-request` (the latter opens the modal, built from config alone — no
   fetch and no store read), `ModalSubmit` for the submitted `/review-request`
   form (deferred with callback type 5, then finished in `waitUntil`), and
@@ -36,7 +38,10 @@ nothing else:
 - **`scheduled()`** (`src/handlers/scheduled.ts`, `runTick`) — a cron trigger
   every five minutes (`wrangler.jsonc`'s `triggers.crons`). Re-syncs against
   GitHub, reads reactions for claims, clears stale claims, purges
-  expired records, and rewrites the pinned digest.
+  expired records, and rewrites the pinned digest. Near the end it issues
+  the `foldStats` command (before `purgeResolved`), which folds closed weeks'
+  pending stats entries into weekly totals and deletes them; the tick report
+  logs `statsFolded`.
 
 There is no gateway connection anywhere in this codebase. A gateway
 connection needs a persistent WebSocket and a process that stays alive to
@@ -53,6 +58,21 @@ Monitoring below. It is behind the `HEALTH_TOKEN` shared secret and answers
 404 when that secret is unset: the body names the App installation id,
 credential failure reasons, the digest message id and the lease state. See
 `adr-health-behind-a-shared-secret`.
+
+`GET /stats` (`src/handlers/stats.ts`) is a fourth, likewise minor route. It
+uses its own `STATS_TOKEN` (404 when unset, 401 on a wrong token) and returns
+one row per folded ISO week from `sinceWeek` on (`?weeks=N`, 1 to 104,
+default 26) with a `rolling4` version; figures below the disclosure thresholds are `null`. It
+reads `StoreState.stats` through `foldedThrough` only, so nothing pending is
+visible. See `adr-anonymous-review-stats`.
+
+Review stats live in `StoreState.stats` (`src/core/stats/types.ts`): pending
+entries (anonymous, no ids or repo; a record links to its entry via
+`roundPendingEntryId` until the week is folded or the record's round timing is
+scrubbed, about a day after it resolves) and the weekly totals folded from
+them. `sinceWeek`, set by the first fold, is the week after deploy: stats start
+there, and earlier weeks are never folded or shown. They are part of schema version 7
+(`src/store/schema.ts`).
 
 ## The three module seams
 
@@ -258,6 +278,7 @@ records the set and acts on nothing. See
 | Hosting constraints | `wrangler.jsonc`, `src/store/do.ts`, `config/config.ts` (`immediateDigestRewrite`) |
 | Monitoring | `src/handlers/health.ts` |
 | `/review-list` | `src/handlers/reviewList.ts` |
+| Review stats | `src/core/stats/` (entries, fold, figures), `src/core/render/stats.ts`, `src/handlers/stats.ts`, `foldStats` in `src/handlers/scheduled.ts` |
 | Preview harness | `preview/build.ts`, `npm run preview` |
 
 ## Testing notes

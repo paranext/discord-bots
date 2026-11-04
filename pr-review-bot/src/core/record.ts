@@ -76,6 +76,23 @@ export interface PrRecord {
   isDraft: boolean;
 
   lastSyncedAt: number | null;
+
+  // Review-round bookkeeping for the anonymous stats. A round runs from a
+  // request to its resolution or auto-clear; a re-request after a resolve
+  // starts a new one.
+
+  /** When this round began. `null` means the round was already open when stats
+   *  shipped (schema 7): its true start is unknown, so it writes no entry. */
+  roundStartedAt: number | null;
+  /** When this round was first claimed; stays set if the claim is dropped. */
+  roundFirstClaimedAt: number | null;
+  /** Claims dropped this round (held >= 5 minutes, or a stale auto-clear). */
+  roundClaimsDropped: number;
+  /** Re-requests made while this round was open. */
+  roundReRequests: number;
+  /** Id of the pending stats entry this round wrote on resolution, so a reopen
+   *  within the window can retract it. */
+  roundPendingEntryId: number | null;
 }
 
 export interface RequestFields {
@@ -136,10 +153,24 @@ export function reopenRecord(r: PrRecord, _at: number): PrRecord {
 }
 
 export function markRequested(r: PrRecord, at: number, fields: RequestFields): PrRecord {
+  // Decide before reopenRecord clears resolvedAt: a request on a resolved
+  // record starts a new round, a request on an open one is a re-request within
+  // the current round.
+  const startsNewRound = r.resolvedAt !== null;
   const reopened = reopenRecord(r, at);
   return {
     ...reopened,
     ...fields,
+    ...(startsNewRound
+      ? {
+          roundStartedAt: at,
+          roundFirstClaimedAt: null,
+          roundClaimsDropped: 0,
+          roundReRequests: 0,
+          roundPendingEntryId: null,
+        }
+      : // The claim cleared below is not a drop, so claim counters stay as they are.
+        { roundReRequests: reopened.roundReRequests + 1 }),
     lastRequestedAt: at,
     requestCount: reopened.requestCount + 1,
     // A claim from the previous round must not hide the new request.
@@ -186,5 +217,10 @@ export function newCommandRecord(input: NewCommandInput): PrRecord {
     prAuthorLogin: input.prAuthorLogin,
     isDraft: input.isDraft,
     lastSyncedAt: null,
+    roundStartedAt: input.at,
+    roundFirstClaimedAt: null,
+    roundClaimsDropped: 0,
+    roundReRequests: 0,
+    roundPendingEntryId: null,
   };
 }

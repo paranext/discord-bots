@@ -4,6 +4,7 @@ import { CredentialProvider } from "./github/credentials.js";
 import { handleHealth } from "./handlers/health.js";
 import { handleInteraction } from "./handlers/interactions.js";
 import { runTick } from "./handlers/scheduled.js";
+import { handleStats } from "./handlers/stats.js";
 import { RecordsObject } from "./store/do.js";
 import type { Store } from "./store/types.js";
 
@@ -64,6 +65,18 @@ export default {
         staleBannerMs: config.staleBannerMs,
         token: env.HEALTH_TOKEN,
         authorization: request.headers.get("Authorization"),
+      });
+    }
+
+    if (url.pathname === "/stats") {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("method not allowed", { status: 405 });
+      }
+      return handleStats({
+        store: storeFor(env),
+        token: env.STATS_TOKEN,
+        authorization: request.headers.get("Authorization"),
+        url,
       });
     }
 

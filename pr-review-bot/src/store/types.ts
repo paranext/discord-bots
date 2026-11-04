@@ -4,6 +4,7 @@ import type { PrRecord, RequestFields } from "../core/record.js";
 import type { ParsedPr } from "../core/urls.js";
 import type { SubmittedValues } from "../core/submit.js";
 import type { Reactor } from "../core/reactions.js";
+import type { StatsState } from "../core/stats/types.js";
 
 export interface Meta {
   lastSync: number | null;
@@ -82,6 +83,9 @@ export interface StoreState {
   schemaVersion: number;
   records: Record<string, PrRecord>;
   meta: Meta;
+  /** Anonymous review stats. Top-level rather than in `Meta` because `setMeta`
+   *  patches `meta` and must not be able to touch it. */
+  stats: StatsState;
 }
 
 /** The version `emptyState()` writes and `migrateState()` upgrades to. Lives
@@ -97,8 +101,10 @@ export interface StoreState {
  *  only; version 6 removed the channel scan: every record with
  *  `source: "scanned"` is deleted, `PrRecord.source` is removed, and
  *  `Meta.scanCursors` / `Meta.scanBackfill` are reduced to `{}` tombstones (not
- *  in `Meta`; kept only for old-build processes mid-deploy). */
-export const CURRENT_SCHEMA_VERSION = 6;
+ *  in `Meta`; kept only for old-build processes mid-deploy); version 7 added
+ *  the five per-round fields to every record (`PrRecord.roundStartedAt` and
+ *  its four siblings) and `StoreState.stats`, the anonymous review stats. */
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export type Command =
   | {
@@ -158,7 +164,7 @@ export type Command =
       /** From the menu option value. Null skips the staleness check. */
       expectLastRequestedAt: number | null;
     }
-  | { kind: "unclaim"; id: string; userId: string }
+  | { kind: "unclaim"; id: string; userId: string; at: number }
   | {
       kind: "resolve";
       id: string;
@@ -169,6 +175,8 @@ export type Command =
   | { kind: "reopen"; id: string; at: number }
   | { kind: "clearStaleClaims"; now: number }
   | { kind: "purgeResolved"; now: number }
+  /** Folds closed weeks' pending stats entries into weekly totals. Returns a count of entries folded. */
+  | { kind: "foldStats"; now: number }
   | { kind: "setMeta"; patch: MetaPatch }
   /**
    * Fenced lease release: clears `syncLease` only if the lease still belongs to

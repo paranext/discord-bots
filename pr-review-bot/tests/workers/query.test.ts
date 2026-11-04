@@ -78,6 +78,12 @@ describe("buildQuery", () => {
     expect(query).toContain("__typename");
   });
 
+  it("requests mergedAt and closedAt so the stats see GitHub's own done time", () => {
+    const query = buildQuery(prs);
+    expect(query).toContain("mergedAt");
+    expect(query).toContain("closedAt");
+  });
+
   it("NEVER requests reviewDecision", () => {
     expect(buildQuery(prs)).not.toContain("reviewDecision");
   });
@@ -97,6 +103,30 @@ describe("fetchSnapshots", () => {
       title: "PT-341",
       state: "OPEN",
       authorLogin: "jolie",
+    });
+  });
+
+  it("parses mergedAt and closedAt to epoch ms, or null when absent", async () => {
+    stubGraphql([
+      {
+        data: {
+          p0: prNode(341, { merged: true, state: "MERGED", mergedAt: "2026-07-30T17:54:01Z", closedAt: "2026-07-30T17:54:01Z" }),
+          p1: prNode(342),
+        },
+      },
+    ]);
+    const outcome = await fetchSnapshots(
+      provider(),
+      ["eten-tech-foundation/scripture-editors/341", "eten-tech-foundation/scripture-editors/342"],
+      T0,
+    );
+    expect(outcome.snapshots.get("eten-tech-foundation/scripture-editors/341")).toMatchObject({
+      mergedAt: Date.parse("2026-07-30T17:54:01Z"),
+      closedAt: Date.parse("2026-07-30T17:54:01Z"),
+    });
+    expect(outcome.snapshots.get("eten-tech-foundation/scripture-editors/342")).toMatchObject({
+      mergedAt: null,
+      closedAt: null,
     });
   });
 

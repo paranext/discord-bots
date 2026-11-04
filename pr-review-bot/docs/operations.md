@@ -13,6 +13,35 @@ export HEALTH_TOKEN=<the value you set with `wrangler secret put HEALTH_TOKEN`>
 A 404 from `/health` means the Worker has no `HEALTH_TOKEN` set at all; a 401
 means yours does not match it.
 
+## Review stats
+
+`GET /stats` returns anonymous weekly figures, oldest week first, each with a
+`rolling4` version over the 4 weeks ending there. It needs its own secret
+(`wrangler secret put STATS_TOKEN`, `docs/setup.md` step 11):
+
+```bash
+export STATS_TOKEN=<the value you set with `wrangler secret put STATS_TOKEN`>
+curl -s -H "Authorization: Bearer $STATS_TOKEN" \
+  "https://<worker>/stats?weeks=12" | jq .
+```
+
+404 means `STATS_TOKEN` is unset; 401 means yours doesn't match. `weeks` is
+1 to 104 (default 26; 0 or a non-integer gives 26). A figure below its
+disclosure threshold is `null` (median needs 5 rounds, 75th percentile needs
+20), and only complete, folded weeks appear, so a new week shows up about 24
+hours after it closes. Stats start with the first full week after deploy
+(`sinceWeek` in the response): rows before it are omitted, so a fresh deploy
+returns `weeks: []` for up to two weeks, and asking for more weeks than exist
+returns fewer rows. `/review-stats` in Discord shows the same data privately.
+
+After a deploy that adds a slash command, re-run `npm run register-commands`
+(`docs/setup.md` step 15). The tick report logs `statsFolded`, the number of
+pending entries folded into weekly totals that tick.
+
+**Rollback warning.** Review stats moved the store to schema version 7. Once a
+v7 build has run, a v6 build refuses to load the state and takes the whole bot
+down. **Do not roll back across it; roll forward** with a fix.
+
 ## The digest was deleted
 
 **Signature:** the pinned "Needs review" message is gone from the channel;

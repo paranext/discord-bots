@@ -25,6 +25,8 @@ export interface TickReport {
   resolved: number;
   staleClaimsCleared: number;
   purged: number;
+  /** Pending stats entries folded into weekly totals this tick. */
+  statsFolded: number;
   notFound: number;
   digest: DigestOutcome | null;
   dailyPosted: boolean;
@@ -50,7 +52,7 @@ export interface TickReport {
 function resultCounters(
   commands: Command[],
   results: CommandResult[],
-): { staleClaimsCleared: number; purged: number; reactionClaims: number; reactionReleases: number } {
+): { staleClaimsCleared: number; purged: number; statsFolded: number; reactionClaims: number; reactionReleases: number } {
   const counted = (kind: Command["kind"]): number => {
     const hit = results.find((r, i) => commands[i]?.kind === kind && r.kind === "count");
     return hit?.kind === "count" ? hit.count : 0;
@@ -61,6 +63,7 @@ function resultCounters(
   return {
     staleClaimsCleared: counted("clearStaleClaims"),
     purged: counted("purgeResolved"),
+    statsFolded: counted("foldStats"),
     reactionClaims: syncs.reduce((sum, r) => sum + (r.kind === "reaction-sync" ? r.claimed.length : 0), 0),
     reactionReleases: syncs.reduce((sum, r) => sum + (r.kind === "reaction-sync" ? r.released.length : 0), 0),
   };
@@ -137,7 +140,7 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
 
   const empty: TickReport = {
     skipped: false, syncOk: true, synced: 0, resolved: 0,
-    staleClaimsCleared: 0, purged: 0, notFound: 0,
+    staleClaimsCleared: 0, purged: 0, statsFolded: 0, notFound: 0,
     digest: null, dailyPosted: false, subrequests: 0,
     reactionsRead: 0, reactionClaims: 0, reactionReleases: 0,
     reactionsEligible: 0, reactionsBudgetShed: 0,
@@ -318,7 +321,9 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
     }
     console.log(`[REACTIONS] eligible=${eligible.length} read=${reactionsRead} allowance=${allowance}`);
 
-    // 10. Purge beyond retention, capped per tick.
+    // 10. Fold closed weeks' stats entries into weekly totals (and delete them),
+    // then purge beyond retention, capped per tick.
+    commands.push({ kind: "foldStats", now });
     commands.push({ kind: "purgeResolved", now });
 
     // lastSync advances only on a successful sync, so a stale list looks stale.

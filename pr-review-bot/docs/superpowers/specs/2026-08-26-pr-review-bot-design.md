@@ -50,6 +50,11 @@ Deliberately excluded from v1:
   names no individual and lands in a channel people already read.
 - Per-person views ("PRs you have not reviewed").
 - Review-time analytics or reporting.
+  - **Amended 2026-11-03:** anonymous, team-wide weekly review-time totals are
+    now collected and shown, under strict disclosure rules. Per-person analytics
+    and reporting remain a non-goal. See
+    [`2026-11-03-review-stats-design.md`](2026-11-03-review-stats-design.md) and
+    `adr-anonymous-review-stats`. The original text above is left as written.
 - Writing anything to GitHub. All GitHub access is read-only.
 - Forum posts per PR (considered and rejected as too heavyweight).
 - Per-user GitHub OAuth.

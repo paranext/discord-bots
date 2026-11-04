@@ -1,4 +1,5 @@
 import type { PrRecord } from "../core/record.js";
+import { emptyStats, type StatsState } from "../core/stats/types.js";
 import { CURRENT_SCHEMA_VERSION, type Meta, type StashedSubmission, type StoreState } from "./types.js";
 
 /**
@@ -35,9 +36,25 @@ type StoredStashedSubmission = Omit<StashedSubmission, "values"> & {
  * A `PrRecord` as some earlier deploy could have written it. Version 4 added
  * three fields, so version-3 records lack them; version 5 removed
  * `prdThreadId`, so records before it carry it; version 6 removed `source`, so
- * records before it carry it.
+ * records before it carry it; version 7 added the five per-round fields, so
+ * records before it lack them.
  */
-type StoredRecord = Omit<PrRecord, "claimSource" | "reactionCheckedAt" | "lastReactors"> & {
+type StoredRecord = Omit<
+  PrRecord,
+  | "claimSource"
+  | "reactionCheckedAt"
+  | "lastReactors"
+  | "roundStartedAt"
+  | "roundFirstClaimedAt"
+  | "roundClaimsDropped"
+  | "roundReRequests"
+  | "roundPendingEntryId"
+> & {
+  roundStartedAt?: number | null;
+  roundFirstClaimedAt?: number | null;
+  roundClaimsDropped?: number;
+  roundReRequests?: number;
+  roundPendingEntryId?: number | null;
   claimSource?: PrRecord["claimSource"];
   reactionCheckedAt?: number | null;
   lastReactors?: string[] | null;
@@ -50,10 +67,11 @@ type StoredRecord = Omit<PrRecord, "claimSource" | "reactionCheckedAt" | "lastRe
  * the pre-deploy baseline, so the only pre-1 shape that exists is an unversioned
  * one — `schemaVersion` absent. Every future shape change widens this type (or
  * `StoredMeta`) by exactly the fields it changes, and adds one step to
- * `migrateState`.
+ * `migrateState`. `stats` was added in version 7, so earlier state lacks it.
  */
-export type StoredState = Omit<StoreState, "schemaVersion" | "meta" | "records"> & {
+export type StoredState = Omit<StoreState, "schemaVersion" | "meta" | "records" | "stats"> & {
   schemaVersion?: number;
+  stats?: StatsState;
   meta: StoredMeta;
   records: Record<string, StoredRecord>;
 };
@@ -66,8 +84,9 @@ export type StoredState = Omit<StoreState, "schemaVersion" | "meta" | "records">
  * chain therefore ends in one narrowing cast at the `return`, which is sound
  * because the last step by construction produces `CURRENT_SCHEMA_VERSION`.
  */
-type MigratingState = Omit<StoreState, "schemaVersion" | "meta" | "records"> & {
+type MigratingState = Omit<StoreState, "schemaVersion" | "meta" | "records" | "stats"> & {
   schemaVersion: number;
+  stats?: StatsState;
   meta: StoredMeta;
   records: Record<string, StoredRecord>;
 };
@@ -204,6 +223,33 @@ export function migrateState(stored: StoredState): StoreState {
   // a channel it has not walked yet. Same reasoning as the `prdCache` tombstone.
   if (state.schemaVersion === 5) {
     state = { ...stripRetiredScan(state), schemaVersion: 6 };
+  }
+
+  // 6 → 7: anonymous review stats. `StoreState.stats` starts empty, and every
+  // record gains the five per-round fields. `roundStartedAt: null` is chosen,
+  // not incidental: it means "this round was already open at deploy, so its
+  // first-claim and start times are unknown". Seeding the start from
+  // `firstRequestedAt` instead would invent a duration for a round the bot never
+  // watched (a claim made weeks ago would read as a wait that began at the first
+  // request), and would poison the histograms with guesses. A null start makes
+  // the round write no stats entry when it ends. A re-request on a record that
+  // is still OPEN continues that same null round (it only bumps the re-request
+  // count); only a request after the record resolves starts a tracked round
+  // with a real start. The counters start at 0 and the pending-entry id at
+  // null (no entry written yet).
+  if (state.schemaVersion === 6) {
+    const records: Record<string, StoredRecord> = {};
+    for (const [id, record] of Object.entries(state.records)) {
+      records[id] = {
+        ...record,
+        roundStartedAt: null,
+        roundFirstClaimedAt: null,
+        roundClaimsDropped: 0,
+        roundReRequests: 0,
+        roundPendingEntryId: null,
+      };
+    }
+    state = { ...state, schemaVersion: 7, records, stats: emptyStats() };
   }
 
   // Every version, every load: the same strips again. An old-build tick that

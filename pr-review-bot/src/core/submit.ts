@@ -34,7 +34,7 @@ export const FIELD_IDS = {
  *  and enforced twice: as `max_length` on the modal's own inputs (the modal is
  *  what a well-behaved client obeys) and again here at parse time (the modal is
  *  client-side, so this is the trust boundary a stale or modified client can't
- *  cross). A long URL or note otherwise threatens the retry stash's 128 KiB
+ *  cross). A long URL or note otherwise threatens the retry stash's 2 MB
  *  Durable Object value and the digest's per-row render budget. */
 export const URL_MAX_LENGTH = 200;
 export const NOTE_MAX_LENGTH = 500;
@@ -110,7 +110,7 @@ export function parseSubmission(components: unknown, config: Config): SubmitPars
   // Unnormalised APART FROM the two length caps: this is what the retry prefill
   // hands back, and a user who typed trailing whitespace should see their own
   // text, not a cleaned copy. The caps are applied here and nowhere later
-  // because `values` is the copy `reject()` STASHES, and the stash is the 128 KiB
+  // because `values` is the copy `reject()` STASHES, and the stash is the 2 MB
   // Durable Object value the caps exist to protect — clamping only on the
   // success path leaves the persisting path unbounded.
   const values: SubmittedValues = {

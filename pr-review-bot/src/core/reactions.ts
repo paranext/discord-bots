@@ -114,7 +114,7 @@ export function syncReactions(record: PrRecord, reactors: Reactor[] | null, now:
   for (const userId of record.lastReactors) {
     if (present.has(userId)) continue;
     if (current.claimedBy !== userId || current.claimSource !== "reaction") continue;
-    const outcome = applyUnclaim(current, userId);
+    const outcome = applyUnclaim(current, userId, now);
     if (outcome.kind === "released") {
       current = outcome.record;
       released.push(userId);

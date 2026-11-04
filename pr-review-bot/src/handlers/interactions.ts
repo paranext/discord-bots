@@ -9,6 +9,7 @@ import { verifyDiscordRequest } from "../discord/verify.js";
 import type { CredentialProvider } from "../github/credentials.js";
 import type { Command, CommandResult, Store } from "../store/types.js";
 import { renderReviewList } from "./reviewList.js";
+import { reviewStatsResponse } from "./reviewStats.js";
 import { handleModalSubmit, handleRetryButton, openRequestModal, type RequestDeps } from "./reviewRequest.js";
 
 export interface InteractionDeps {
@@ -103,6 +104,10 @@ export async function handleInteraction(request: Request, deps: InteractionDeps)
       const state = await deps.store.readState();
       return json(renderReviewList(state, deps.config, deps.now()));
     }
+    if (interaction.data?.name === "review-stats") {
+      // No channel gate, like review-list: ephemeral and anonymous.
+      return json(reviewStatsResponse(await deps.store.readState()));
+    }
     if (interaction.data?.name === "review-request") {
       if (!isAllowedChannel(deps.config, interaction.channel_id)) return json(notAllowedChannel(deps.config));
       const request = requestDeps(deps);
@@ -156,7 +161,7 @@ async function handleComponent(interaction: Interaction, deps: InteractionDeps) 
     // Selecting a row you already hold releases it.
     const command: Command =
       record.claimedBy === who.id
-        ? { kind: "unclaim", id: decoded.id, userId: who.id }
+        ? { kind: "unclaim", id: decoded.id, userId: who.id, at: now }
         : {
             kind: "claim",
             id: decoded.id,
@@ -180,7 +185,7 @@ async function handleComponent(interaction: Interaction, deps: InteractionDeps) 
       // ACCEPTED; the two numbers must be the same, and a config field with one
       // definition is what makes that true instead of merely hoped-for.
       if (record.resolvedAt === null || now - record.resolvedAt > deps.config.reopenWindowMs) {
-        return ephemeral(`**${record.title}** cannot be reopened from here — resolve it again with the command.`);
+        return ephemeral(cannotReopen(record.title));
       }
       const result = await deps.store.apply([{ kind: "reopen", id: decoded.id, at: now }], {
         now,
@@ -240,6 +245,10 @@ function requestDeps(deps: InteractionDeps): RequestDeps | null {
   return { ...deps, rest: deps.rest, credentials: deps.credentials, appId: deps.appId };
 }
 
+function cannotReopen(title: string) {
+  return `**${title}** cannot be reopened from here — resolve it again with the command.`;
+}
+
 function describe(result: CommandResult | undefined, title: string, action: "claim" | "unclaim" | "resolve" | "reopen") {
   if (result === undefined) return ephemeral("Nothing happened. Try again from the pinned list.");
 
@@ -256,6 +265,9 @@ function describe(result: CommandResult | undefined, title: string, action: "cla
         `**${title}** changed since the list was drawn — it was re-requested. Nothing changed; open the pinned list again.`,
       );
     case "not-open":
+      // `reopen` only answers not-open when the store refuses it past the
+      // reopen window, a race with the handler's own check above.
+      if (action === "reopen") return ephemeral(cannotReopen(title));
       return ephemeral(`**${title}** is already off the list. Nothing changed.`);
     case "not-found":
       return ephemeral(`**${title}** is no longer tracked. Nothing changed.`);

@@ -151,6 +151,7 @@ wrangler secret put GITHUB_APP_INSTALLATION_ID
 wrangler secret put GITHUB_APP_PRIVATE_KEY   # the PKCS#8 pem from step 7
 wrangler secret put GITHUB_PUBLIC_TOKEN
 wrangler secret put HEALTH_TOKEN              # any long random string, e.g. `openssl rand -hex 32`
+wrangler secret put STATS_TOKEN               # a different long random string
 ```
 
 `HEALTH_TOKEN` is the shared secret for `GET /health`. That endpoint reports
@@ -160,6 +161,11 @@ deployment to anyone who guesses the `*.workers.dev` hostname. **Until this
 secret is set, `/health` answers 404** (not 401: an unset secret should not
 advertise that there is an endpoint here to guess at). Set it before step 12,
 or step 16 has nothing to read.
+
+`STATS_TOKEN` is the shared secret for `GET /stats`, the anonymous weekly
+review-time figures (see `docs/operations.md`, "Review stats"). It is a
+separate secret so it can be handed to a manager without exposing the health
+body. Like `/health`, **`/stats` answers 404 until it is set.**
 
 ## 12. Deploy and watch three ticks
 
@@ -203,7 +209,10 @@ the same shape as `npm run preview`. (It used to be documented as
 `npx tsx …`; `tsx` is not a dependency of this repo, so that line asked npm
 to fetch a package nothing here declares.)
 
-This registers `/review-list` and `/review-request`; there is no flag.
+This registers `/review-list`, `/review-request` and `/review-stats`; there
+is no flag. When a release adds a command (`/review-stats` was added with
+schema v7), re-run `npm run register-commands` after deploying, or Discord
+won't offer it.
 
 Then announce it to the team, and set the channel topic (or pin a message)
 saying: "Use `/review-request` to ask for a review. Pasted links aren't

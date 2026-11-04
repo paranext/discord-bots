@@ -247,6 +247,24 @@ describe("handleInteraction — resolve and reopen", () => {
     expect((await store.readState()).records[ID]?.resolvedAt).not.toBeNull();
   });
 
+  it("says cannot be reopened, not already off the list, when the store refuses a late reopen", async () => {
+    // The handler's read says the row is inside the window; the stored record
+    // is past it, so only the store's own window check refuses.
+    const stored = resolveRecord(record(), T0 - 30 * 3600_000, "cleared by Jolie");
+    const { store } = makeStore([stored]);
+    const fresh = resolveRecord(record(), T0 - 3600_000, "cleared by Jolie");
+    const racing = Object.create(store) as MemoryStore;
+    racing.readState = async () => seeded([fresh]);
+    const response = await handleInteraction(
+      componentRequest("digest:resolve", `reopen:${ID}:${T0 - 3 * DAY}`),
+      deps(racing),
+    );
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("cannot be reopened");
+    expect(body.data.content).not.toContain("already off the list");
+    expect((await store.readState()).records[ID]?.resolvedAt).not.toBeNull();
+  });
+
   it("reports not-found for a record that has been purged", async () => {
     const { store } = makeStore([]);
     const response = await handleInteraction(componentRequest("digest:resolve", `${ID}:${T0}`), deps(store));
@@ -333,6 +351,23 @@ describe("handleInteraction — /review-request routing", () => {
     const body = (await response.json()) as { type: number; data: { custom_id: string } };
     expect(body.type).toBe(9);
     expect(body.data.custom_id).toBe("request:modal");
+  });
+
+  it("answers /review-stats ephemerally with one embed, in a channel that is not allowed", async () => {
+    const { store } = makeStore([]);
+    const request = rawRequest({
+      type: 2,
+      id: "c-2",
+      token: "tok",
+      channel_id: "some-other-channel",
+      member: { user: { id: "u1", global_name: "Katherine", username: "Katherine" } },
+      data: { name: "review-stats" },
+    });
+    const response = await handleInteraction(request, deps(store));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { data: { flags: number; embeds: unknown[] } };
+    expect(body.data.flags & EPHEMERAL_FLAG).toBe(EPHEMERAL_FLAG);
+    expect(body.data.embeds).toHaveLength(1);
   });
 
   it("answers the modal submission with a deferral and schedules the work", async () => {

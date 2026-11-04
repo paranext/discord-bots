@@ -1,6 +1,6 @@
 import type { Config } from "../../config/config.js";
 import { applyClaim, applyUnclaim, clearStaleClaim } from "../core/claims.js";
-import { applySnapshot } from "../core/exit.js";
+import { applySnapshotWithExit, type RoundExit } from "../core/exit.js";
 import {
   isOpen,
   markRequested,
@@ -11,6 +11,9 @@ import {
   type PrRecord,
 } from "../core/record.js";
 import { syncReactions } from "../core/reactions.js";
+import { buildEntry } from "../core/stats/entry.js";
+import { foldStats } from "../core/stats/fold.js";
+import { emptyStats } from "../core/stats/types.js";
 import { prSlug } from "../core/urls.js";
 import { CURRENT_SCHEMA_VERSION, type Command, type CommandResult, type Meta, type StoreState } from "./types.js";
 
@@ -18,6 +21,7 @@ export function emptyState(): StoreState {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     records: {},
+    stats: emptyStats(),
     meta: {
       lastSync: null,
       digestMessageId: null,
@@ -33,6 +37,59 @@ export function emptyState(): StoreState {
 
 function put(records: Record<string, PrRecord>, record: PrRecord): Record<string, PrRecord> {
   return { ...records, [recordId(record)]: record };
+}
+
+/**
+ * Stores a just-resolved record and, unless it is a legacy round, its anonymous
+ * pending entry. The entry id comes from a counter, never the PR slug, so the
+ * entry cannot be traced back to a PR. The record keeps the id so `reopen` can
+ * withdraw the entry if the round turns out not to be over.
+ */
+function endRound(state: StoreState, resolved: PrRecord, exit: RoundExit, at: number): StoreState {
+  const id = state.stats.nextEntryId;
+  const entry = buildEntry(resolved, exit, id, at);
+  if (entry === null) return { ...state, records: put(state.records, resolved) };
+  return {
+    ...state,
+    records: put(state.records, { ...resolved, roundPendingEntryId: id }),
+    stats: { ...state.stats, nextEntryId: id + 1, pending: [...state.stats.pending, entry] },
+  };
+}
+
+/**
+ * Wipes a resolved record's per-round timing once its reopen window has passed.
+ * Left in place, `roundStartedAt` and `roundFirstClaimedAt` sit next to the PR's
+ * identity and `resolvedBy` (which can name a reviewer) until the 30-day purge,
+ * so exact per-PR, per-person claim timing would stay recoverable for a month.
+ * The fields only exist to build the round's anonymous entry and to let a
+ * reopen withdraw it; past the window `reopen` is refused, and the only way
+ * back is a re-request, which `markRequested` treats as a fresh round that
+ * resets every one of these fields anyway. So nothing reads them again.
+ *
+ * Returns the same object when there is nothing to scrub, so callers can tell
+ * a no-op from a change by identity.
+ */
+function scrubRoundTiming(r: PrRecord, now: number, reopenWindowMs: number): PrRecord {
+  // Strictly past the window, the same boundary `reopen` and the resolve menu
+  // use: at exactly the window a reopen is still allowed, so the fields stay.
+  if (r.resolvedAt === null || now - r.resolvedAt <= reopenWindowMs) return r;
+  if (
+    r.roundStartedAt === null &&
+    r.roundFirstClaimedAt === null &&
+    r.roundClaimsDropped === 0 &&
+    r.roundReRequests === 0 &&
+    r.roundPendingEntryId === null
+  ) {
+    return r;
+  }
+  return {
+    ...r,
+    roundStartedAt: null,
+    roundFirstClaimedAt: null,
+    roundClaimsDropped: 0,
+    roundReRequests: 0,
+    roundPendingEntryId: null,
+  };
 }
 
 /** Shared revalidation for both menu-driven commands. Components persist across
@@ -120,8 +177,12 @@ function applyOne(
     case "applySnapshot": {
       const existing = state.records[command.id];
       if (existing === undefined) return { state, result: { kind: "not-found" } };
+      const { record, exit } = applySnapshotWithExit(existing, command.snapshot, command.now);
       return {
-        state: { ...state, records: put(state.records, applySnapshot(existing, command.snapshot, command.now)) },
+        state:
+          exit === null
+            ? { ...state, records: put(state.records, record) }
+            : endRound(state, record, exit, command.now),
         result: { kind: "ok" },
       };
     }
@@ -167,7 +228,7 @@ function applyOne(
     case "unclaim": {
       const existing = state.records[command.id];
       if (existing === undefined) return { state, result: { kind: "not-found" } };
-      const outcome = applyUnclaim(existing, command.userId);
+      const outcome = applyUnclaim(existing, command.userId, command.at);
       if (outcome.kind === "released") {
         return { state: { ...state, records: put(state.records, outcome.record) }, result: { kind: "ok" } };
       }
@@ -183,7 +244,12 @@ function applyOne(
       if (!isOpen(existing)) return { state, result: { kind: "not-open" } };
       if (stale(existing, command.expectLastRequestedAt)) return { state, result: { kind: "stale" } };
       return {
-        state: { ...state, records: put(state.records, resolveRecord(existing, command.at, command.by)) },
+        state: endRound(
+          state,
+          resolveRecord(existing, command.at, command.by),
+          { outcome: "cleared", doneAt: command.at },
+          command.at,
+        ),
         result: { kind: "ok" },
       };
     }
@@ -191,8 +257,28 @@ function applyOne(
     case "reopen": {
       const existing = state.records[command.id];
       if (existing === undefined) return { state, result: { kind: "not-found" } };
+      // The handler checks the window too, but against the record it read before
+      // this batch ran. A fold tick in between may already have scrubbed the
+      // round (see `scrubRoundTiming`), so reopening now would bring back a
+      // record with no round start and no entry link. Refuse it here, inside
+      // the atomic apply, where the check can't race.
+      if (existing.resolvedAt !== null && command.at - existing.resolvedAt > config.reopenWindowMs) {
+        return { state, result: { kind: "not-open" } };
+      }
+      const reopened = reopenRecord(existing, command.at);
+      // Only a resolved record that really reopens had its round "end" by mistake;
+      // reopening an open record (or one a new request already restarted) must
+      // leave the earlier round's entry alone.
+      const withdrawable = !isOpen(existing) && isOpen(reopened) ? existing.roundPendingEntryId : null;
+      if (withdrawable === null) {
+        return { state: { ...state, records: put(state.records, reopened) }, result: { kind: "ok" } };
+      }
       return {
-        state: { ...state, records: put(state.records, reopenRecord(existing, command.at)) },
+        state: {
+          ...state,
+          records: put(state.records, { ...reopened, roundPendingEntryId: null }),
+          stats: { ...state.stats, pending: state.stats.pending.filter((e) => e.id !== withdrawable) },
+        },
         result: { kind: "ok" },
       };
     }
@@ -219,6 +305,28 @@ function applyOne(
       const records = { ...state.records };
       for (const id of expired) delete records[id];
       return { state: { ...state, records }, result: { kind: "count", count: expired.length } };
+    }
+
+    case "foldStats": {
+      const { stats, foldedIds, folded: foldedCount } = foldStats(state.stats, command.now, config.reopenWindowMs);
+      // The entries are gone, so the links to them would dangle; a later reopen
+      // must find nothing to withdraw rather than a stale id.
+      const folded = new Set(foldedIds);
+      let changed = stats !== state.stats;
+      const records: Record<string, PrRecord> = {};
+      for (const [id, r] of Object.entries(state.records)) {
+        const unlinked =
+          r.roundPendingEntryId !== null && folded.has(r.roundPendingEntryId) ? { ...r, roundPendingEntryId: null } : r;
+        const next = scrubRoundTiming(unlinked, command.now, config.reopenWindowMs);
+        if (next !== r) changed = true;
+        records[id] = next;
+      }
+      // Nothing folded and nothing scrubbed: hand back the same object so a
+      // no-op tick doesn't rewrite state.
+      if (!changed) return { state, result: { kind: "count", count: 0 } };
+      // The count is entries folded into a week; pre-sinceWeek entries dropped
+      // unfolded are unlinked above but not counted.
+      return { state: { ...state, records, stats }, result: { kind: "count", count: foldedCount } };
     }
 
     case "setMeta": {

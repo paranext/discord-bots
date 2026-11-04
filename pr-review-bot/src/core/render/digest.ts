@@ -11,7 +11,8 @@ export const EMBED_TOTAL_LIMIT = 6000;
  *  markdown links and ages are long-form relative timestamps. */
 export const DEFAULT_MAX_ROWS = 20;
 
-const COLOR_NORMAL = 0x5865f2;
+/** Neutral blurple for a normal (not stale) embed; `/review-stats` uses it too. */
+export const COLOR_NORMAL = 0x5865f2;
 const COLOR_STALE = 0xf0b232;
 
 export function overflowNotice(count: number): string {

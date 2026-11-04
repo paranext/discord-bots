@@ -271,7 +271,7 @@ async function submit(interaction: SubmitInteraction, deps: RequestDeps): Promis
   // client-side and this is the trust boundary: a stale interaction re-opened
   // across a config or code deploy could still carry a longer note. Clamped
   // here, before it ever reaches the record, so neither the retry stash's
-  // 128 KiB Durable Object value nor the digest's per-row render budget can be
+  // 2 MB Durable Object value nor the digest's per-row render budget can be
   // blown by one long entry.
   const trimmedNote = parse.values.note.trim();
   const fields: RequestFields = {

@@ -454,6 +454,9 @@ what v1 happens to render.
   age-based sort cannot distinguish a re-request from a brand-new one
   without `requestCount`.
 
+*Amended 2026-11-03:* anonymous, team-wide review-time totals now exist; this
+decision still excludes anything per person. See `adr-anonymous-review-stats`.
+
 ## adr-daily-post
 
 **Context.** Discord fires a pin notification exactly once, at the moment a
@@ -945,3 +948,100 @@ on every menu-claimed record carrying a reaction on the very first deploy,
 which is exactly the burst that priming exists to prevent. A reactor whose
 reaction loses to a menu claim gets no notice and must re-add the reaction (or
 use the menu) to find out the row moved on without them.
+
+## adr-anonymous-review-stats
+
+**Status.** Accepted 2026-11-03. Schema version 7. Design:
+`docs/superpowers/specs/2026-11-03-review-stats-design.md`.
+
+**Context.** The bot shipped with "no review-time analytics" as a promise, for
+the reason in `adr-per-person-data-off-the-render`. The maintainer and a
+manager now need two answers the data can't give: is the bot helping or
+hurting review, and how does responsiveness change over time. Answering needs
+timings, which the promise ruled out. The promise worth keeping was never
+"nothing is timed"; it was "nobody is measured".
+
+**Decision.** Collect anonymous, team-wide weekly totals and nothing per
+person.
+
+- **Per-person data stays excluded.** No requester, claimer, reviewer or
+  author appears in any stored, shown or returned figure, and none is planned.
+  A pending entry holds only `id`, `week`, `outcome`, three durations rounded
+  to 5 minutes, `claimed`, `claimsDropped` and `reRequests`.
+- **No repo or urgency is stored**, not even on the pending entry. Entry plus
+  GitHub's public review and merge times would identify the PR and the
+  reviewer. The cost, accepted by the maintainer, is that a per-repo or
+  per-urgency view can never be built from this data.
+- **Weekly totals only.** When a week has closed and `reopenWindowMs` (24 h)
+  has passed, its entries are folded into that week's totals (counts by
+  outcome, summed drops and re-requests, and histograms over fixed buckets for
+  `reviewed` rounds) and deleted. Nothing finer than a weekly total outlives
+  about 8 days. Totals are kept indefinitely and can't be removed per person.
+- **Round timing is scrubbed off the record after the reopen window.** The
+  per-round fields (`roundStartedAt`, `roundFirstClaimedAt`, the two counters
+  and `roundPendingEntryId`) sit beside the PR's identity and `resolvedBy`,
+  which can name the reviewer, so left until the 30-day purge they would make
+  exact per-PR, per-person claim timing recoverable for a month. The
+  `foldStats` tick wipes them once a resolved record is past
+  `reopenWindowMs`; `reopen` is refused past that window, and a re-request
+  starts a fresh round, so nothing reads them again. A request to remove one
+  round goes to the maintainer, who can delete the pending entry and its
+  record while the link still exists (about a day).
+- **Collection starts on a full week.** The first fold sets `stats.sinceWeek`
+  to the week after it ran. Entries from before it are dropped unfolded,
+  `foldedThrough` stays null until `sinceWeek` closes, and outputs never read
+  an earlier week, so a week the bot only partly watched (or not at all) never
+  reads as a quiet one. `/review-stats` omits the previous-4-weeks comparison
+  until all four of those weeks were collected.
+  Histogram edges (15m, 30m, 1h, 2h, 4h, 8h, 1d, 2d, 3d, 5d, 7d, 14d, plus an
+  open last bucket) are fixed once shipped, because changing them breaks
+  comparisons across weeks. Medians and percentiles are interpolated within a
+  bucket, so they are approximate.
+- **Five disclosure rules, for every output** (`/review-stats` and `/stats`):
+  1. Complete, folded weeks only; nothing pending or current is shown, so
+     running the command before and after one PR resolves shows nothing.
+  2. A median needs at least 5 rounds.
+  3. The 75th percentile ("slowest 1 in 4") needs at least 20 rounds, so at
+     least 5 rounds sit above it. No other percentile is shown.
+  4. Counts are shown as they are.
+  5. Histograms and buckets are never returned.
+- **`STATS_TOKEN`** protects `GET /stats`. It is separate from `HEALTH_TOKEN`
+  so a manager can be given it without exposing the health body, and like
+  `/health` the endpoint answers 404 when it is unset
+  (`adr-health-behind-a-shared-secret`).
+- **Recording-week bucketing.** An entry belongs to the ISO week (UTC) in which
+  the bot *recorded* the resolution, not the week GitHub says it was done. A
+  sync-paused PR can resolve weeks after its GitHub done time, and adding it to
+  an already-folded week would change published history.
+
+**Known biases (documented, not corrected).**
+- Reaction claims are timestamped when a tick detects them (round-robin, 10
+  reads per tick, first poll only primes), so wait-to-claim is inflated for
+  them, more when the backlog is larger. A shift in how many people claim by
+  reaction can move the trend.
+- Draft time counts as waiting; drafts can be requested.
+- `reviews(last: 20)` can miss the earliest review on a very busy PR, making
+  its done time later than it was.
+- Totals are written when a round ends, so very long-open PRs are
+  under-represented until they resolve.
+- Rounds already open at the v7 deploy write no entry (their first-claim time
+  is unknown).
+- A release within 5 minutes of the claim is not a drop; stale auto-clears
+  are. Resolve and re-request never count.
+
+**Consequences.**
+- Schema v7. Rolling back to a v6 build after v7 has run refuses to load
+  state and takes the whole bot down (`adr-durable-object-schema-version`).
+  Roll forward.
+- README's "What this bot stores" says so plainly, including that weekly
+  totals can't be removed per person. The maintainer announces the change to
+  the team before deploying.
+- Pending entries and totals live in `StoreState.stats`, atomic with the
+  resolution that writes them.
+
+**Alternatives rejected.**
+- *Keep each finished review so filters can be added later* — each entry plus
+  GitHub's public times identifies the PR and the reviewer.
+- *Show the slowest 1 in 10* — with 5-9 rounds that is a single remembered PR.
+- *Per-person or per-repo breakdowns* — see above; this decision exists to
+  keep them out.

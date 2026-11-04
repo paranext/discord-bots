@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySnapshot, countsAsReview, exitVerdict, type PrSnapshot, type ReviewEvent } from "../../src/core/exit.js";
+import { applySnapshotWithExit, countsAsReview, exitVerdict, type PrSnapshot, type ReviewEvent } from "../../src/core/exit.js";
 import { resolveRecord, type PrRecord } from "../../src/core/record.js";
 import { testRecord } from "../../fixtures/records.js";
 
@@ -32,6 +32,8 @@ function snapshot(overrides: Partial<PrSnapshot> = {}): PrSnapshot {
     isDraft: false,
     authorLogin: "jolie",
     reviews: [],
+    mergedAt: null,
+    closedAt: null,
     ...overrides,
   };
 }
@@ -103,18 +105,18 @@ describe("countsAsReview", () => {
 describe("exitVerdict", () => {
   it("resolves on a qualifying review, naming the reviewer", () => {
     const v = exitVerdict(record(), snapshot({ reviews: [review()] }));
-    expect(v).toEqual({ resolve: true, resolvedBy: "review by katherine" });
+    expect(v).toMatchObject({ resolve: true, resolvedBy: "review by katherine" });
   });
 
   it("resolves when merged", () => {
-    expect(exitVerdict(record(), snapshot({ state: "MERGED", merged: true }))).toEqual({
+    expect(exitVerdict(record(), snapshot({ state: "MERGED", merged: true }))).toMatchObject({
       resolve: true,
       resolvedBy: "merged",
     });
   });
 
   it("resolves when closed unmerged", () => {
-    expect(exitVerdict(record(), snapshot({ state: "CLOSED" }))).toEqual({
+    expect(exitVerdict(record(), snapshot({ state: "CLOSED" }))).toMatchObject({
       resolve: true,
       resolvedBy: "closed",
     });
@@ -135,7 +137,7 @@ describe("exitVerdict", () => {
       record(),
       snapshot({ reviews: [review({ authorLogin: "copilot[bot]" }), review({ authorLogin: "ira" })] }),
     );
-    expect(v).toEqual({ resolve: true, resolvedBy: "review by ira" });
+    expect(v).toMatchObject({ resolve: true, resolvedBy: "review by ira" });
   });
 
   it("does not resolve a re-requested PR whose only review predates the re-request", () => {
@@ -148,7 +150,7 @@ describe("exitVerdict", () => {
   it("resolves a re-requested PR once a new review lands", () => {
     const rerequested = record({ lastRequestedAt: T0 + 2 * HOUR, requestCount: 2 });
     const v = exitVerdict(rerequested, snapshot({ reviews: [review({ submittedAt: T0 + 3 * HOUR })] }));
-    expect(v).toEqual({ resolve: true, resolvedBy: "review by katherine" });
+    expect(v).toMatchObject({ resolve: true, resolvedBy: "review by katherine" });
   });
 
   it("ignores reviewDecision even when it would imply the opposite verdict", () => {
@@ -160,7 +162,7 @@ describe("exitVerdict", () => {
     // And the converse: a real review resolves it even though reviewDecision
     // says a review is still required.
     const required = { ...snapshot({ reviews: [review()] }), reviewDecision: "REVIEW_REQUIRED" } as PrSnapshot;
-    expect(exitVerdict(record(), required)).toEqual({ resolve: true, resolvedBy: "review by katherine" });
+    expect(exitVerdict(record(), required)).toMatchObject({ resolve: true, resolvedBy: "review by katherine" });
   });
 
   it("picks the earliest of several qualifying reviews, regardless of array order", () => {
@@ -170,12 +172,12 @@ describe("exitVerdict", () => {
     const later = review({ submittedAt: T0 + 3 * HOUR, authorLogin: "ira" });
     const earlier = review({ submittedAt: T0 + HOUR, authorLogin: "katherine" });
     const v = exitVerdict(record(), snapshot({ reviews: [later, earlier] }));
-    expect(v).toEqual({ resolve: true, resolvedBy: "review by katherine" });
+    expect(v).toMatchObject({ resolve: true, resolvedBy: "review by katherine" });
   });
 
   it("falls back to 'someone' when the resolving review has no author login", () => {
     const v = exitVerdict(record(), snapshot({ reviews: [review({ authorLogin: null })] }));
-    expect(v).toEqual({ resolve: true, resolvedBy: "review by someone" });
+    expect(v).toMatchObject({ resolve: true, resolvedBy: "review by someone" });
   });
 
   it("uses the snapshot's author when the record has none", () => {
@@ -185,17 +187,102 @@ describe("exitVerdict", () => {
   });
 });
 
-describe("applySnapshot", () => {
+describe("exitVerdict exit outcome", () => {
+  it("a merged PR with a qualifying review is reviewed, done at the review", () => {
+    const v = exitVerdict(
+      record(),
+      snapshot({ state: "MERGED", merged: true, mergedAt: T0 + 3 * HOUR, reviews: [review({ submittedAt: T0 + HOUR })] }),
+    );
+    expect(v).toEqual({
+      resolve: true,
+      resolvedBy: "merged",
+      exit: { outcome: "reviewed", doneAt: T0 + HOUR },
+    });
+  });
+
+  it("a merged PR with no qualifying review is merged-unreviewed, done at mergedAt", () => {
+    const v = exitVerdict(record(), snapshot({ state: "MERGED", merged: true, mergedAt: T0 + 3 * HOUR }));
+    expect(v).toEqual({
+      resolve: true,
+      resolvedBy: "merged",
+      exit: { outcome: "merged-unreviewed", doneAt: T0 + 3 * HOUR },
+    });
+  });
+
+  it("a merged PR with no mergedAt leaves doneAt null so the recording time is used", () => {
+    const v = exitVerdict(record(), snapshot({ state: "MERGED", merged: true, mergedAt: null }));
+    expect(v).toMatchObject({ resolve: true, exit: { outcome: "merged-unreviewed", doneAt: null } });
+  });
+
+  it("a closed PR with no review is closed-unreviewed, done at closedAt", () => {
+    const v = exitVerdict(record(), snapshot({ state: "CLOSED", closedAt: T0 + 2 * HOUR }));
+    expect(v).toEqual({
+      resolve: true,
+      resolvedBy: "closed",
+      exit: { outcome: "closed-unreviewed", doneAt: T0 + 2 * HOUR },
+    });
+  });
+
+  it("a closed PR with a qualifying review is reviewed, done at the review", () => {
+    const v = exitVerdict(
+      record(),
+      snapshot({ state: "CLOSED", closedAt: T0 + 3 * HOUR, reviews: [review({ submittedAt: T0 + HOUR })] }),
+    );
+    expect(v).toMatchObject({ resolve: true, exit: { outcome: "reviewed", doneAt: T0 + HOUR } });
+  });
+
+  it("a merged PR whose only review predates the latest request is merged-unreviewed", () => {
+    const v = exitVerdict(
+      record({ lastRequestedAt: T0 + 2 * HOUR }),
+      snapshot({ state: "MERGED", merged: true, mergedAt: T0 + 3 * HOUR, reviews: [review({ submittedAt: T0 + HOUR })] }),
+    );
+    expect(v).toMatchObject({ resolve: true, exit: { outcome: "merged-unreviewed", doneAt: T0 + 3 * HOUR } });
+  });
+
+  it("an open PR uses the earliest qualifying review as doneAt", () => {
+    const v = exitVerdict(
+      record(),
+      snapshot({
+        reviews: [review({ submittedAt: T0 + 2 * HOUR }), review({ submittedAt: T0 + HOUR })],
+      }),
+    );
+    expect(v).toEqual({
+      resolve: true,
+      resolvedBy: "review by katherine",
+      exit: { outcome: "reviewed", doneAt: T0 + HOUR },
+    });
+  });
+});
+
+describe("applySnapshotWithExit", () => {
+  it("returns the exit when this call resolved an open record", () => {
+    const out = applySnapshotWithExit(record(), snapshot({ reviews: [review()] }), T0 + 5 * HOUR);
+    expect(out.record.resolvedBy).toBe("review by katherine");
+    expect(out.exit).toEqual({ outcome: "reviewed", doneAt: T0 + HOUR });
+  });
+
+  it("returns exit null for an already-resolved record", () => {
+    const resolved = resolveRecord(record(), T0 + HOUR, "manual by Jolie");
+    const out = applySnapshotWithExit(resolved, snapshot({ reviews: [review()] }), T0 + 5 * HOUR);
+    expect(out.exit).toBeNull();
+  });
+
+  it("returns exit null when the record stays open", () => {
+    expect(applySnapshotWithExit(record(), snapshot(), T0 + HOUR).exit).toBeNull();
+  });
+});
+
+describe("applySnapshotWithExit record refresh", () => {
   const NOW = T0 + 5 * HOUR;
 
   it("resolves an open record when the verdict says so", () => {
-    const r = applySnapshot(record(), snapshot({ reviews: [review()] }), NOW);
+    const r = applySnapshotWithExit(record(), snapshot({ reviews: [review()] }), NOW).record;
     expect(r.resolvedAt).toBe(NOW);
     expect(r.resolvedBy).toBe("review by katherine");
   });
 
   it("refreshes the cached title, draft flag and author on every sync", () => {
-    const r = applySnapshot(record(), snapshot({ title: "PT-4363 renamed", isDraft: true, authorLogin: "ira" }), NOW);
+    const r = applySnapshotWithExit(record(), snapshot({ title: "PT-4363 renamed", isDraft: true, authorLogin: "ira" }), NOW).record;
     expect(r.title).toBe("PT-4363 renamed");
     expect(r.isDraft).toBe(true);
     expect(r.prAuthorLogin).toBe("ira");
@@ -204,7 +291,7 @@ describe("applySnapshot", () => {
 
   it("clears syncPausedSince on the first successful sync", () => {
     const paused = record({ syncPausedSince: T0 });
-    expect(applySnapshot(paused, snapshot(), NOW).syncPausedSince).toBeNull();
+    expect(applySnapshotWithExit(paused, snapshot(), NOW).record.syncPausedSince).toBeNull();
   });
 
   it("keeps the record's own author when the snapshot's author is unknown", () => {
@@ -212,13 +299,13 @@ describe("applySnapshot", () => {
     // clobber a known author with null — that null would then make every
     // future review of theirs look like a self-review.
     const known = record({ prAuthorLogin: "jolie" });
-    const r = applySnapshot(known, snapshot({ authorLogin: null }), NOW);
+    const r = applySnapshotWithExit(known, snapshot({ authorLogin: null }), NOW).record;
     expect(r.prAuthorLogin).toBe("jolie");
   });
 
   it("leaves an already-resolved record alone rather than restamping it", () => {
     const resolved = resolveRecord(record(), T0 + HOUR, "manual by Jolie");
-    const r = applySnapshot(resolved, snapshot({ reviews: [review()] }), NOW);
+    const r = applySnapshotWithExit(resolved, snapshot({ reviews: [review()] }), NOW).record;
     expect(r.resolvedAt).toBe(T0 + HOUR);
     expect(r.resolvedBy).toBe("manual by Jolie");
   });
