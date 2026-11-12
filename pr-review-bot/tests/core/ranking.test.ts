@@ -10,7 +10,7 @@ import {
 } from "../../src/core/ranking.js";
 import { resolveRecord, type PrRecord } from "../../src/core/record.js";
 import { testRecord } from "../../fixtures/records.js";
-import type { TeamName, UrgencyKey } from "../../config/config.js";
+import type { UrgencyKey } from "../../config/config.js";
 
 const T0 = 1_756_000_000_000;
 const HOUR = 3_600_000;
@@ -19,7 +19,6 @@ const DAY = 24 * HOUR;
 function rec(
   number: number,
   opts: {
-    team?: TeamName | null;
     urgency?: UrgencyKey | null;
     firstRequestedAt?: number;
     claimedBy?: string | null;
@@ -37,7 +36,6 @@ function rec(
   });
   return {
     ...base,
-    team: opts.team ?? null,
     urgency: opts.urgency ?? null,
     claimedBy: opts.claimedBy ?? null,
     claimedByName: opts.claimedByName ?? null,
@@ -69,24 +67,16 @@ describe("urgencyRank", () => {
 
 describe("rankRows", () => {
   it("excludes resolved records", () => {
-    const rows = rankRows([resolveRecord(rec(1, { team: "Power" }), T0, "merged")], baseConfig);
+    const rows = rankRows([resolveRecord(rec(1), T0, "merged")], baseConfig);
     expect(rows).toHaveLength(0);
   });
 
-  it("puts team sections in configured order: Power, Simple, General", () => {
-    const rows = rankRows(
-      [rec(1, { team: "General", urgency: "soon" }), rec(2, { team: "Simple", urgency: "soon" }), rec(3, { team: "Power", urgency: "soon" })],
-      baseConfig,
-    );
-    expect(rows.map((r) => r.record.number)).toEqual([3, 2, 1]);
-  });
-
-  it("sorts urgency descending then age oldest-first inside a team", () => {
+  it("sorts urgency descending then age oldest-first in one list", () => {
     const rows = rankRows(
       [
-        rec(1, { team: "Power", urgency: "soon", firstRequestedAt: T0 - 8 * DAY }),
-        rec(2, { team: "Power", urgency: "blocking", firstRequestedAt: T0 - 1 * HOUR }),
-        rec(3, { team: "Power", urgency: "soon", firstRequestedAt: T0 - 30 * DAY }),
+        rec(1, { urgency: "soon", firstRequestedAt: T0 - 8 * DAY }),
+        rec(2, { urgency: "blocking", firstRequestedAt: T0 - 1 * HOUR }),
+        rec(3, { urgency: "soon", firstRequestedAt: T0 - 30 * DAY }),
       ],
       baseConfig,
     );
@@ -94,78 +84,62 @@ describe("rankRows", () => {
     expect(rows.map((r) => r.record.number)).toEqual([2, 3, 1]);
   });
 
-  it("places rows with no team in a triage section after every team section", () => {
-    const rows = rankRows([rec(1), rec(2, { team: "General", urgency: "soon" })], baseConfig);
-    expect(rows.map((r) => r.section.kind)).toEqual(["team", "triage"]);
+  it("ranks a record with no urgency last among the open rows", () => {
+    const rows = rankRows([rec(1), rec(2, { urgency: "thisWeek" })], baseConfig);
+    expect(rows.map((r) => r.record.number)).toEqual([2, 1]);
+    expect(rows.every((r) => r.record.claimedBy === null)).toBe(true);
   });
 
-  it("moves claimed rows into a claimed section after triage", () => {
+  it("moves claimed rows into a claimed section after the open rows", () => {
     const rows = rankRows(
       [
-        rec(1, { team: "Power", urgency: "blocking", claimedBy: "u1", claimedByName: "Katherine" }),
-        rec(2, { team: "Power", urgency: "soon" }),
+        rec(1, { urgency: "blocking", claimedBy: "u1", claimedByName: "Katherine" }),
+        rec(2, { urgency: "soon" }),
         rec(3),
       ],
       baseConfig,
     );
-    expect(rows.map((r) => r.section.kind)).toEqual(["team", "triage", "claimed"]);
+    expect(rows.map((r) => r.record.claimedBy !== null)).toEqual([false, false, true]);
     expect(rows.at(-1)?.record.number).toBe(1);
   });
 
-  it("triages a record whose team was removed from config, rather than sorting it above every section", () => {
-    // Dropping a name from `config.teams` is a one-line edit that still
-    // typechecks, and it does not touch records already in the store.
-    // `indexOf` returns -1 for the orphan, which sorted it AHEAD of Power —
-    // opening the pin with a heading for a team that no longer exists.
-    const withoutSimple = { ...baseConfig, teams: ["Power", "General"] as TeamName[] };
-    const rows = rankRows(
-      [rec(1, { team: "Simple", urgency: "blocking" }), rec(2, { team: "Power", urgency: "thisWeek" })],
-      withoutSimple,
-    );
-
-    expect(rows.map((r) => r.section.kind)).toEqual(["team", "triage"]);
-    expect(rows[0]?.record.number).toBe(2);
-    expect(rows[1]?.record.number).toBe(1);
-  });
-
   it("breaks ties on record id so the body is deterministic across ticks", () => {
-    const a = rankRows([rec(9, { team: "Power", urgency: "soon" }), rec(4, { team: "Power", urgency: "soon" })], baseConfig);
-    const b = rankRows([rec(4, { team: "Power", urgency: "soon" }), rec(9, { team: "Power", urgency: "soon" })], baseConfig);
+    const a = rankRows([rec(9, { urgency: "soon" }), rec(4, { urgency: "soon" })], baseConfig);
+    const b = rankRows([rec(4, { urgency: "soon" }), rec(9, { urgency: "soon" })], baseConfig);
     expect(a.map((r) => r.id)).toEqual(b.map((r) => r.id));
   });
 });
 
 describe("truncateRows", () => {
   const many = Array.from({ length: 31 }, (_, i) =>
-    rec(i + 1, { team: "Power", urgency: i === 0 ? "blocking" : "thisWeek", firstRequestedAt: T0 - (31 - i) * DAY }),
+    rec(i + 1, { urgency: i === 0 ? "blocking" : "thisWeek", firstRequestedAt: T0 - (31 - i) * DAY }),
   );
 
   it("keeps the highest-ranked rows and reports how many were dropped", () => {
-    const result = truncateRows(rankRows(many, baseConfig), 20, baseConfig);
+    const result = truncateRows(rankRows(many, baseConfig), 20);
     expect(result.rendered).toHaveLength(20);
     expect(result.droppedCount).toBe(11);
   });
 
   it("never drops the top-ranked row", () => {
-    const result = truncateRows(rankRows(many, baseConfig), 20, baseConfig);
+    const result = truncateRows(rankRows(many, baseConfig), 20);
     expect(result.rendered[0]?.record.number).toBe(1);
   });
 
   it("drops nothing when everything fits", () => {
-    const result = truncateRows(rankRows(many.slice(0, 5), baseConfig), 20, baseConfig);
+    const result = truncateRows(rankRows(many.slice(0, 5), baseConfig), 20);
     expect(result.droppedCount).toBe(0);
     expect(result.rendered).toHaveLength(5);
   });
 
   it("handles an empty list", () => {
-    expect(truncateRows([], 20, baseConfig)).toEqual({ rendered: [], droppedCount: 0 });
+    expect(truncateRows([], 20)).toEqual({ rendered: [], droppedCount: 0 });
   });
 });
 
 describe("menuOptions", () => {
   const many = Array.from({ length: 31 }, (_, i) =>
     rec(i + 1, {
-      team: "Power",
       urgency: i === 30 ? "blocking" : "thisWeek",
       firstRequestedAt: T0 - (i === 30 ? HOUR : (31 - i) * DAY),
     }),
@@ -174,18 +148,18 @@ describe("menuOptions", () => {
   it("is populated from the digest ranking, not oldest-first", () => {
     // Row 31 is 🔥 and only 90 minutes old — the newest row and the most urgent.
     // An oldest-first menu would omit exactly this one.
-    const rendered = truncateRows(rankRows(many, baseConfig), 20, baseConfig).rendered;
+    const rendered = truncateRows(rankRows(many, baseConfig), 20).rendered;
     const options = menuOptions(rendered, "claim", baseConfig);
     expect(options[0]?.value).toContain("/31:");
   });
 
   it("caps at Discord's 25 options", () => {
-    const rendered = truncateRows(rankRows(many, baseConfig), 30, baseConfig).rendered;
+    const rendered = truncateRows(rankRows(many, baseConfig), 30).rendered;
     expect(menuOptions(rendered, "claim", baseConfig)).toHaveLength(25);
   });
 
   it("contains no row absent from the render", () => {
-    const rendered = truncateRows(rankRows(many, baseConfig), 20, baseConfig).rendered;
+    const rendered = truncateRows(rankRows(many, baseConfig), 20).rendered;
     const renderedIds = new Set(rendered.map((r) => r.id));
     for (const option of menuOptions(rendered, "claim", baseConfig)) {
       expect(renderedIds.has(decodeOptionValue(option.value)!.id)).toBe(true);
@@ -199,8 +173,8 @@ describe("menuOptions", () => {
     // where nobody else takes it, until the two-day stale sweep.
     const rows = rankRows(
       [
-        rec(1, { team: "Power", urgency: "soon" }),
-        rec(2, { team: "Power", urgency: "soon", claimedBy: "u1", claimedByName: "Katherine" }),
+        rec(1, { urgency: "soon" }),
+        rec(2, { urgency: "soon", claimedBy: "u1", claimedByName: "Katherine" }),
       ],
       baseConfig,
     );
@@ -223,10 +197,10 @@ describe("menuOptions", () => {
     // input order — or moved one row — fails.
     const rows = rankRows(
       [
-        rec(1, { team: "Power", urgency: "soon", claimedBy: "u1", claimedByName: "Katherine" }),
-        rec(2, { team: "Power", urgency: "soon" }),
-        rec(3, { team: "Power", urgency: "soon", claimedBy: "u2", claimedByName: "Ira" }),
-        rec(4, { team: "Power", urgency: "soon" }),
+        rec(1, { urgency: "soon", claimedBy: "u1", claimedByName: "Katherine" }),
+        rec(2, { urgency: "soon" }),
+        rec(3, { urgency: "soon", claimedBy: "u2", claimedByName: "Ira" }),
+        rec(4, { urgency: "soon" }),
       ],
       baseConfig,
     );
@@ -235,7 +209,7 @@ describe("menuOptions", () => {
   });
 
   it("keeps every label inside Discord's 100-character option limit", () => {
-    const long = rec(1, { team: "Power", urgency: "blocking" });
+    const long = rec(1, { urgency: "blocking" });
     const rows = rankRows([{ ...long, title: "x".repeat(300) }], baseConfig);
     for (const option of menuOptions(rows, "claim", baseConfig)) {
       expect(option.label.length).toBeLessThanOrEqual(100);
@@ -252,7 +226,7 @@ describe("menuOptions", () => {
     //
     // An over-long `value` is not a bad row: Discord 400s the whole PATCH, so the
     // digest stops repainting entirely and freezes showing PRs already done.
-    const long = rec(1, { team: "Power", urgency: "blocking" });
+    const long = rec(1, { urgency: "blocking" });
     const wide: PrRecord = { ...long, owner: "o".repeat(60), repo: "r".repeat(60) };
     const rows = rankRows([wide], baseConfig);
     const options = menuOptions(rows, "claim", baseConfig);
@@ -271,7 +245,7 @@ describe("menuOptions", () => {
 
 describe("option value encoding", () => {
   it("round-trips the id and lastRequestedAt", () => {
-    const r = rec(177, { team: "Power", urgency: "blocking" });
+    const r = rec(177, { urgency: "blocking" });
     const decoded = decodeOptionValue(encodeOptionValue(r));
     expect(decoded).toEqual({ id: "paranext/paranext-core/177", lastRequestedAt: r.lastRequestedAt });
   });
@@ -289,7 +263,7 @@ describe("menuOptions — a level with no emoji", () => {
   };
 
   it("starts the option label at the title, with no leading space", () => {
-    const rows = rankRows([rec(1, { team: "Power", urgency: "soon" })], noEmoji);
+    const rows = rankRows([rec(1, { urgency: "soon" })], noEmoji);
     expect(menuOptions(rows, "claim", noEmoji)[0]?.label).toBe("PT-1 Title");
   });
 });

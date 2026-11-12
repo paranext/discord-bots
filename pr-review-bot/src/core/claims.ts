@@ -87,7 +87,7 @@ export function applyUnclaim(r: PrRecord, userId: string, at: number): ClaimOutc
 }
 
 /**
- * Auto-clearing returns the PR to its team section where someone else can pick it
+ * Auto-clearing returns the PR to the open list where someone else can pick it
  * up. It deliberately does NOT display a warning beside the claimer's name: a ⚠️
  * in a permanently pinned message is a public lateness board, and the predictable
  * adaptation is that people stop claiming.

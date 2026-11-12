@@ -1,16 +1,10 @@
-import type { Config, TeamName, UrgencyKey } from "../../config/config.js";
+import type { Config, UrgencyKey } from "../../config/config.js";
 import { isOpen, recordId, type PrRecord } from "./record.js";
 import { urgencyEmojiFor, urgencyLevel } from "./urgency.js";
-
-export type Section =
-  | { kind: "team"; team: TeamName }
-  | { kind: "triage" }
-  | { kind: "claimed" };
 
 export interface Row {
   record: PrRecord;
   id: string;
-  section: Section;
 }
 
 export interface TruncateResult {
@@ -30,36 +24,9 @@ export function urgencyRank(urgency: UrgencyKey | null, config: Config): number 
   return urgencyLevel(urgency, config)?.rank ?? Number.MAX_SAFE_INTEGER - 1;
 }
 
-function sectionOrder(section: Section, config: Config): number {
-  if (section.kind === "team") return config.teams.indexOf(section.team);
-  if (section.kind === "triage") return config.teams.length;
-  return config.teams.length + 1;
-}
-
-/**
- * A record whose team is no longer in config renders as TRIAGE, not as a section
- * of its own.
- *
- * Dropping a name from `config.teams` is a one-line edit that still typechecks —
- * `TeamName` is a union, not the array — and it does not touch records already
- * in the store. `sectionOrder`'s `indexOf` returns -1 for such a team, which
- * sorts it ahead of every real section, so the pin would open with a heading for
- * a team that no longer exists. `submit.ts` already refuses to CREATE a record
- * for an unknown team for this exact reason; this is the same guard for the
- * records that predate the config change, and it makes removing a team degrade
- * into "those rows need re-triaging" rather than into a corrupt-looking digest.
- */
-function sectionFor(r: PrRecord, config: Config): Section {
-  if (r.claimedBy !== null) return { kind: "claimed" };
-  if (r.team === null) return { kind: "triage" };
-  if (!config.teams.includes(r.team)) return { kind: "triage" };
-  return { kind: "team", team: r.team };
-}
-
-/** Urgency first, then oldest first. Shared by `rankRows` (which applies it
- *  within a section) and `truncateRows` (which applies it across all of them),
- *  so the display order and the drop order cannot drift out of agreement about
- *  what "more urgent" means. */
+/** Urgency first, then oldest first — within the open rows and within the
+ *  claimed ones. Because open rows are displayed in exactly this order,
+ *  `truncateRows` can drop from the end of them. */
 function byUrgencyThenAge(a: Row, b: Row, config: Config): number {
   const byUrgency = urgencyRank(a.record.urgency, config) - urgencyRank(b.record.urgency, config);
   if (byUrgency !== 0) return byUrgency;
@@ -72,47 +39,28 @@ function byUrgencyThenAge(a: Row, b: Row, config: Config): number {
   return a.id.localeCompare(b.id);
 }
 
-/** DISPLAY order: section first, so the digest can render team headings in
- *  config order. Which rows are dropped when capacity runs out is a separate
- *  question with a different answer — see `truncateRows`. */
+/** DISPLAY order: open rows first, then claimed ones, each by urgency then age. */
 export function rankRows(records: PrRecord[], config: Config): Row[] {
-  const rows: Row[] = records
-    .filter(isOpen)
-    .map((record) => ({ record, id: recordId(record), section: sectionFor(record, config) }));
+  const rows: Row[] = records.filter(isOpen).map((record) => ({ record, id: recordId(record) }));
+  const claimedRank = (row: Row): number => (row.record.claimedBy === null ? 0 : 1);
 
-  return rows.sort((a, b) => {
-    const bySection = sectionOrder(a.section, config) - sectionOrder(b.section, config);
-    if (bySection !== 0) return bySection;
-    return byUrgencyThenAge(a, b, config);
-  });
+  return rows.sort((a, b) => claimedRank(a) - claimedRank(b) || byUrgencyThenAge(a, b, config));
 }
 
 /**
- * Chooses WHICH rows survive the row-count cap, and hands them back still in
- * `rows`'s own (section) order for display.
- *
- * Taking a flat prefix of `rankRows`'s output would drop by SECTION, not by
- * urgency: with 20 🧊 This week rows in the first team section and 3 🔥 Blocking
- * rows in the last, a cap of 20 hides all three blocking rows. The spec says the
- * opposite — "when capacity is exhausted, rows are dropped lowest-urgency and
- * most-recently requested first" — and it matters twice over, because the claim
- * and resolve menus are populated from the surviving rows, so a dropped blocking
- * row is not actionable from the digest either.
- *
- * So selection ranks across ALL sections by urgency and age; display grouping is
- * left exactly as it was.
+ * Applies the row-count cap. `rows` must already be in urgency-then-age order —
+ * the open rows of `rankRows` are — so the rows dropped are the lowest-urgency,
+ * most-recently requested ones, as the spec requires ("when capacity is
+ * exhausted, rows are dropped lowest-urgency and most-recently requested
+ * first"). It matters twice over: the claim and resolve menus are populated
+ * from the surviving rows, so a dropped blocking row would not be actionable
+ * from the digest either. If display order ever groups rows by anything but
+ * urgency again (it once grouped them by team), this must rank by urgency
+ * itself rather than take a prefix.
  */
-export function truncateRows(rows: Row[], maxRows: number, config: Config): TruncateResult {
+export function truncateRows(rows: Row[], maxRows: number): TruncateResult {
   if (rows.length <= maxRows) return { rendered: rows, droppedCount: 0 };
-
-  const kept = new Set(
-    [...rows]
-      .sort((a, b) => byUrgencyThenAge(a, b, config))
-      .slice(0, maxRows)
-      .map((row) => row.id),
-  );
-
-  return { rendered: rows.filter((row) => kept.has(row.id)), droppedCount: rows.length - maxRows };
+  return { rendered: rows.slice(0, maxRows), droppedCount: rows.length - maxRows };
 }
 
 export function encodeOptionValue(r: PrRecord): string {
@@ -170,7 +118,7 @@ export function menuOptions(rendered: Row[], kind: "claim" | "resolve", config: 
     // Says who holds it before anyone selects it, so the "already claimed"
     // reply is a confirmation rather than the first anyone hears of it.
     const holder = kind === "claim" && row.record.claimedBy !== null ? (row.record.claimedByName ?? "someone") : null;
-    const context = `${row.record.repo}#${row.record.number}${row.record.team === null ? "" : ` · ${row.record.team}`}`;
+    const context = `${row.record.repo}#${row.record.number}`;
     return {
       label: clamp(`${holder === null ? "" : "👀 "}${prefix}${row.record.title}`),
       // `value` is capped at 100 characters by Discord exactly as `label` and

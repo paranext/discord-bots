@@ -35,7 +35,6 @@ function record(number: number, overrides: Partial<PrRecord> = {}): PrRecord {
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
-    team: "Power",
     urgency: "soon",
     ...overrides,
   };

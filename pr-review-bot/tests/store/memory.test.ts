@@ -46,7 +46,6 @@ function seeded(): StoreState {
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
-    team: "Power" as const,
     urgency: "blocking" as const,
     note: "blocks the release cut",
   };
@@ -424,7 +423,6 @@ describe("lost-update ordering", () => {
         prAuthorLogin: "jolie",
         isDraft: false,
       }),
-      team: "Power" as const,
       urgency: "soon" as const,
     });
     const x = build(177, "X needs review");

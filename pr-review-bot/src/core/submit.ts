@@ -11,7 +11,6 @@ import { urgencyLevel } from "./urgency.js";
  */
 export interface SubmittedValues {
   url: string;
-  team: string;
   urgency: string;
   note: string;
 }
@@ -25,7 +24,6 @@ export const MODAL_ID = "request:modal";
  *  the parser reads, kept in one place so the two cannot drift apart. */
 export const FIELD_IDS = {
   url: "url",
-  team: "team",
   urgency: "urgency",
   note: "note",
 } as const;
@@ -50,7 +48,6 @@ export const NOTE_MAX_LENGTH = 500;
 export type SubmitRejection =
   | { reason: "not-a-pr"; detail: ParseFailure }
   | { reason: "url-too-long" }
-  | { reason: "invalid-team" }
   | { reason: "invalid-urgency" }
   | { reason: "note-required" }
   | { reason: "merged" }
@@ -115,20 +112,9 @@ export function parseSubmission(components: unknown, config: Config): SubmitPars
   // success path leaves the persisting path unbounded.
   const values: SubmittedValues = {
     url: rawUrl.slice(0, URL_MAX_LENGTH),
-    team: raw[FIELD_IDS.team] ?? "",
     urgency: raw[FIELD_IDS.urgency] ?? "",
     note: (raw[FIELD_IDS.note] ?? "").slice(0, NOTE_MAX_LENGTH),
   };
-
-  // Cast-then-trust downstream (`RequestFields["team"]`/`["urgency"]`) is only
-  // safe because this rejects anything not currently in config first. A stale
-  // modal held open across a config deploy, or a select with no value chosen at
-  // all (empty string), would otherwise sort to the top of the digest as a
-  // bogus section — `ranking.ts`'s `config.teams.indexOf` returns -1 for
-  // anything not in the list, which sorts before every real team.
-  if (!config.teams.includes(values.team as Config["teams"][number])) {
-    return { ok: false, values, rejection: { reason: "invalid-team" } };
-  }
 
   const level = urgencyLevel(values.urgency, config);
   if (level === null) {

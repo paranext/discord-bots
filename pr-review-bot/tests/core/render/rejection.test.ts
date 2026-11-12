@@ -5,7 +5,6 @@ import { URL_MAX_LENGTH, type SubmittedValues } from "../../../src/core/submit.j
 
 const values: SubmittedValues = {
   url: "https://github.com/someone/else/pull/1",
-  team: "Power",
   urgency: "blocking",
   note: "demo Thursday",
 };
@@ -42,11 +41,6 @@ describe("renderRejection", () => {
     expect(content).toContain("cannot see");
   });
 
-  it("lists the current teams when the chosen one is gone, since the form may predate the change", () => {
-    const { content } = render({ reason: "invalid-team" });
-    for (const team of config.teams) expect(content).toContain(team);
-  });
-
   it("lists the current urgencies, with their emoji, when the chosen one is gone", () => {
     const { content } = render({ reason: "invalid-urgency" });
     for (const level of config.urgencies) expect(content).toContain(level.label);
@@ -70,10 +64,10 @@ describe("renderRejection", () => {
     const { content } = render({ reason: "merged" });
     expect(content).toContain("https://github.com/someone/else/pull/1");
     expect(content).toContain("demo Thursday");
-    expect(content).toContain("Power");
+    expect(content).toContain("blocking");
   });
 
-  it("omits the Note line when the note is blank, but still echoes link, team and urgency", () => {
+  it("omits the Note line when the note is blank, but still echoes link and urgency", () => {
     const { content } = renderRejection({
       rejection: { reason: "merged" },
       values: { ...values, note: "" },
@@ -82,7 +76,6 @@ describe("renderRejection", () => {
     });
     expect(content).not.toContain("**Note:**");
     expect(content).toContain("https://github.com/someone/else/pull/1");
-    expect(content).toContain("Power");
     expect(content).toContain("blocking");
   });
 
@@ -95,7 +88,6 @@ describe("renderRejection", () => {
     });
     expect(content).not.toContain("**Note:**");
     expect(content).toContain("https://github.com/someone/else/pull/1");
-    expect(content).toContain("Power");
     expect(content).toContain("blocking");
   });
 
@@ -112,7 +104,7 @@ describe("renderRejection", () => {
   });
 
   it("is an alarm if a field clamp is raised or a field is added to the echo", () => {
-    // Every echoed field (url, team, urgency, note) is clamped individually at
+    // Every echoed field (url, urgency, note) is clamped individually at
     // the source in rejection.ts — these per-field clamps are what keep the
     // message under Discord's 2000-character limit. Every field below is driven
     // past its own clamp so that widening or dropping any single clamp would
@@ -125,7 +117,6 @@ describe("renderRejection", () => {
       rejection: { reason: "not-found", slug: "x".repeat(900) },
       values: {
         url: "u".repeat(900),
-        team: "t".repeat(900),
         urgency: "g".repeat(900),
         note: "n".repeat(900),
       },

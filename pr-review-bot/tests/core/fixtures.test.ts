@@ -6,7 +6,7 @@ import { renderDigest, EMBED_DESCRIPTION_LIMIT, EMBED_TOTAL_LIMIT } from "../../
 describe("fixture scenarios", () => {
   it("covers every scenario the preview harness needs", () => {
     expect(SCENARIOS.map((s) => s.key)).toEqual([
-      "ordinary", "triage", "stale", "capacity", "empty", "never-synced",
+      "ordinary", "stale", "capacity", "empty", "never-synced",
     ]);
   });
 

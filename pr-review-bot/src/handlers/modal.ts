@@ -95,11 +95,6 @@ export function buildRequestModal(config: Config, prefill?: SubmittedValues): In
           value: prefill?.url,
           maxLength: URL_MAX_LENGTH,
         })),
-        label("Team", undefined, select(
-          FIELD_IDS.team,
-          config.teams.map((t) => ({ label: t, value: t })),
-          prefill?.team ?? null,
-        )),
         label("Urgency", undefined, select(
           FIELD_IDS.urgency,
           config.urgencies.map((u) => ({

@@ -1,4 +1,4 @@
-import type { TeamName, UrgencyKey } from "../config/config.js";
+import type { UrgencyKey } from "../config/config.js";
 import type { ParsedPr } from "../src/core/urls.js";
 import { newCommandRecord, resolveRecord, type PrRecord } from "../src/core/record.js";
 
@@ -35,7 +35,7 @@ export interface TestRecordInput {
   isDraft: boolean;
 }
 
-/** A command record with no team, urgency, note or requester — what tests that
+/** A command record with no urgency, note or requester — what tests that
  *  need a bare open row used to get from the scan's factory — with `overrides`
  *  spread on top. */
 export function testRecord(input: TestRecordInput, overrides: Partial<PrRecord> = {}): PrRecord {
@@ -45,7 +45,6 @@ export function testRecord(input: TestRecordInput, overrides: Partial<PrRecord> 
     // Placeholders for the required fields, nulled below: a real request
     // always has them, and `RequestFields` says so.
     fields: {
-      team: "Power",
       urgency: "soon",
       note: null,
       requesterId: "",
@@ -57,7 +56,7 @@ export function testRecord(input: TestRecordInput, overrides: Partial<PrRecord> 
     prAuthorLogin: input.prAuthorLogin,
     isDraft: input.isDraft,
   });
-  return { ...record, team: null, urgency: null, requesterId: null, requesterName: null, ...overrides };
+  return { ...record, urgency: null, requesterId: null, requesterName: null, ...overrides };
 }
 
 interface MakeInput {
@@ -65,7 +64,6 @@ interface MakeInput {
   repo: string;
   number: number;
   title: string;
-  team?: TeamName | null;
   urgency?: UrgencyKey | null;
   ageMs: number;
   note?: string | null;
@@ -87,7 +85,6 @@ export function make(input: MakeInput): PrRecord {
       isDraft: input.isDraft ?? false,
     },
     {
-      team: input.team ?? null,
       urgency: input.urgency ?? null,
       note: input.note ?? null,
       requesterId: "u-jolie",
@@ -103,28 +100,18 @@ export function make(input: MakeInput): PrRecord {
 }
 
 const ordinaryDay: PrRecord[] = [
-  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", team: "Power", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo" }),
-  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
-  make({ repo: "paranext-core", number: 2695, title: "PT-9003 Internet Settings UI Enhancements", team: "Simple", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
-  make({ repo: "paranext-core", number: 3408, title: "PT-9009 Normalize whitespace in search input", team: "Power", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),
-  make({ repo: "paranext-core", number: 4325, title: "PT-9004 Unsaved changes badge", team: "Simple", urgency: "soon", ageMs: 1 * DAY, claimedByName: "Ira" }),
-];
-
-// Every request names a team, so the only way a row reaches Needs triage now is
-// a team that was removed from config after the request was made. The cast is
-// the point: "Retired" is not a `TeamName` any more.
-const triage: PrRecord[] = [
-  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", team: "Retired" as TeamName, urgency: "blocking", ageMs: 3 * DAY }),
-  make({ repo: "paranext-core", number: 2708, title: "PT-9005 Badge alignment in narrow panels", team: "Retired" as TeamName, urgency: "soon", ageMs: 1 * DAY }),
-  make({ owner: "eten-tech-foundation", repo: "scripture-editors", number: 341, title: "Fix marker parsing for \\fig", team: "Retired" as TeamName, urgency: "thisWeek", ageMs: 2 * DAY }),
-  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR }),
+  make({ repo: "example-extension", number: 177, title: "PT-9001 P10 backend progress events", urgency: "blocking", ageMs: 3 * DAY, note: "needs a P10 build before Thursday's demo" }),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", urgency: "soon", ageMs: 6 * HOUR }),
+  make({ repo: "paranext-core", number: 2695, title: "PT-9003 Internet Settings UI Enhancements", urgency: "thisWeek", ageMs: 8 * DAY, isDraft: true }),
+  make({ repo: "paranext-core", number: 3408, title: "PT-9009 Normalize whitespace in search input", urgency: "blocking", ageMs: 2 * DAY, claimedByName: "Katherine" }),
+  make({ repo: "paranext-core", number: 4325, title: "PT-9004 Unsaved changes badge", urgency: "soon", ageMs: 1 * DAY, claimedByName: "Ira" }),
 ];
 
 const notSyncing: PrRecord[] = [
-  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", team: "Power", urgency: "soon", ageMs: 6 * HOUR, syncPaused: true }),
-  make({ repo: "paranext-core", number: 2688, title: "PT-9006 Theme preference import", team: "Power", urgency: "thisWeek", ageMs: 4 * DAY, lastClaimedByName: "Ira" }),
-  resolveRecord(make({ repo: "paranext-core", number: 2690, title: "PT-9007 Footnote caller spacing", team: "Power", urgency: "soon", ageMs: 5 * DAY }), FIXTURE_NOW - 10 * MINUTE, "review by Katherine"),
-  resolveRecord(make({ repo: "example-extension", number: 88, title: "PT-9008 Retry banner wording", team: "Simple", urgency: "soon", ageMs: 2 * DAY }), FIXTURE_NOW - 25 * MINUTE, "cleared by Jolie"),
+  make({ repo: "paranext-core", number: 2701, title: "PT-9002 Toolbar progress indicator", urgency: "soon", ageMs: 6 * HOUR, syncPaused: true }),
+  make({ repo: "paranext-core", number: 2688, title: "PT-9006 Theme preference import", urgency: "thisWeek", ageMs: 4 * DAY, lastClaimedByName: "Ira" }),
+  resolveRecord(make({ repo: "paranext-core", number: 2690, title: "PT-9007 Footnote caller spacing", urgency: "soon", ageMs: 5 * DAY }), FIXTURE_NOW - 10 * MINUTE, "review by Katherine"),
+  resolveRecord(make({ repo: "example-extension", number: 88, title: "PT-9008 Retry banner wording", urgency: "soon", ageMs: 2 * DAY }), FIXTURE_NOW - 25 * MINUTE, "cleared by Jolie"),
 ];
 
 const atCapacity: PrRecord[] = Array.from({ length: 31 }, (_, i) =>
@@ -132,7 +119,6 @@ const atCapacity: PrRecord[] = Array.from({ length: 31 }, (_, i) =>
     repo: "paranext-core",
     number: 2600 + i,
     title: `PT-${9100 + i} A change with a realistically long descriptive title`,
-    team: i % 2 === 0 ? "Power" : "Simple",
     urgency: i === 30 ? "blocking" : "thisWeek",
     ageMs: i === 30 ? 90 * MINUTE : (31 - i) * DAY,
     note: i === 30 ? "blocks the release branch cut" : null,
@@ -140,8 +126,7 @@ const atCapacity: PrRecord[] = Array.from({ length: 31 }, (_, i) =>
 );
 
 export const SCENARIOS: Scenario[] = [
-  { key: "ordinary", label: "An ordinary day", tests: "team grouping · urgency within · 🔥 reason inline · claim age suppressed", records: ordinaryDay, lastSync: FIXTURE_NOW - 2 * MINUTE, now: FIXTURE_NOW },
-  { key: "triage", label: "A team removed from config", tests: "Needs triage · rows whose team is gone", records: triage, lastSync: FIXTURE_NOW - 4 * MINUTE, now: FIXTURE_NOW },
+  { key: "ordinary", label: "An ordinary day", tests: "one list · urgency then age · 🔥 reason inline · claim age suppressed", records: ordinaryDay, lastSync: FIXTURE_NOW - 2 * MINUTE, now: FIXTURE_NOW },
   { key: "stale", label: "Not syncing, with recently cleared rows", tests: "the banner that could never fire · resolve accountability", records: notSyncing, lastSync: FIXTURE_NOW - 47 * MINUTE, now: FIXTURE_NOW },
   { key: "capacity", label: "At capacity", tests: "visible set equals actionable set · open count vs rendered count", records: atCapacity, lastSync: FIXTURE_NOW - MINUTE, now: FIXTURE_NOW, maxRows: 20 },
   { key: "empty", label: "Nothing waiting", tests: "no components at all", records: [], lastSync: FIXTURE_NOW - MINUTE, now: FIXTURE_NOW },

@@ -420,7 +420,7 @@ they serve internally.
 **Decision.** Both stay in the store and off the screen.
 
 - `claimedAt` exists so a stale claim can auto-clear after the configured
-  threshold (`config.staleClaimMs`) and return the row to its team section.
+  threshold (`config.staleClaimMs`) and return the row to the open list.
   Rendering it as `Ira · 4d` beside a claimer's name in a message that never
   scrolls away turns it into a public lateness board — and the earlier
   design this replaced put a ⚠️ next to a stuck claim, which is the same
@@ -910,7 +910,7 @@ a sync that actually released, which is what keeps the auto-clear case correct:
 there.
 
 **Why a release is silent and unmarked.** No DM: you meant to do it. And no
-`claimClearedAt`/`lastClaimedByName`, so the row returns to its team section
+`claimClearedAt`/`lastClaimedByName`, so the row returns to the open list
 clean rather than tagged `previously claimed` — that tag is for the 48-hour
 auto-clear, where a row went stale on someone. Handing a review back on purpose
 is a different event and must not read like one.

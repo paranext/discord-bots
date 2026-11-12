@@ -34,7 +34,6 @@ const rendered: RenderedScenario[] = SCENARIOS.map((scenario) => {
 // prefill.
 const PREFILL: SubmittedValues = {
   url: "https://github.com/paranext/paranext-core/pull/2701",
-  team: "Power",
   urgency: "blocking",
   note: "needs a P10 build before Thursday's demo",
 };
@@ -59,7 +58,6 @@ const modals: ModalSpecimen[] = [
 // handler has nothing to stash a retry against.
 const REJECTION_VALUES: SubmittedValues = {
   url: "https://github.com/paranext/paranext-core/pull/9999",
-  team: "Power",
   urgency: "blocking",
   note: "needs a P10 build before Thursday's demo",
 };
@@ -67,7 +65,6 @@ const REJECTION_VALUES: SubmittedValues = {
 const REJECTIONS: { key: string; label: string; rejection: SubmitRejection; stashKey: string | null }[] = [
   { key: "reject-not-a-pr", label: "Rejection — not-a-pr", rejection: { reason: "not-a-pr", detail: "not-a-url" }, stashKey: "stash-1" },
   { key: "reject-url-too-long", label: "Rejection — url-too-long", rejection: { reason: "url-too-long" }, stashKey: "stash-1a" },
-  { key: "reject-invalid-team", label: "Rejection — invalid-team", rejection: { reason: "invalid-team" }, stashKey: "stash-2a" },
   { key: "reject-invalid-urgency", label: "Rejection — invalid-urgency", rejection: { reason: "invalid-urgency" }, stashKey: "stash-2b" },
   { key: "reject-note-required", label: "Rejection — note-required", rejection: { reason: "note-required" }, stashKey: "stash-3" },
   { key: "reject-merged", label: "Rejection — merged", rejection: { reason: "merged" }, stashKey: "stash-4" },

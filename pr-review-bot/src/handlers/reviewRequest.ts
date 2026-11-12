@@ -275,7 +275,6 @@ async function submit(interaction: SubmitInteraction, deps: RequestDeps): Promis
   // blown by one long entry.
   const trimmedNote = parse.values.note.trim();
   const fields: RequestFields = {
-    team: parse.values.team as RequestFields["team"],
     urgency: parse.values.urgency as RequestFields["urgency"],
     note: trimmedNote === "" ? null : trimmedNote.slice(0, NOTE_MAX_LENGTH),
     requesterId: who.id,
@@ -320,7 +319,7 @@ async function submit(interaction: SubmitInteraction, deps: RequestDeps): Promis
     content:
       (created
         ? `**${record?.title ?? slug}** is on the list.`
-        : `Updated your existing request for **${record?.title ?? slug}** — it is back at the top of its team's section.`) +
+        : `Updated your existing request for **${record?.title ?? slug}** — it is back on the list.`) +
       postedNote,
   });
 }

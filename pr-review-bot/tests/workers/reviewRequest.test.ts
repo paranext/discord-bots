@@ -147,7 +147,7 @@ function deps(store: Store, now = NOW): RequestDeps {
 function submission(over: Record<string, string> = {}) {
   // `prd` is deliberately still sent: a modal opened before the PRD field was
   // removed submits it, and every test here proves it is ignored.
-  const v = { url: URL_OK, team: "Power", urgency: "soon", prd: "none", note: "", ...over };
+  const v = { url: URL_OK, urgency: "soon", prd: "none", note: "", ...over };
   return {
     id: "i-1",
     token: "tok",

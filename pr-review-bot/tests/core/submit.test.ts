@@ -8,14 +8,12 @@ import { collectValues, parseSubmission, NOTE_MAX_LENGTH, URL_MAX_LENGTH } from 
 function submitted(over: Partial<Record<string, string>> = {}) {
   const values = {
     url: "https://github.com/paranext/paranext-core/pull/9",
-    team: "Power",
     urgency: "soon",
     note: "",
     ...over,
   };
   return [
     { type: 18, component: { type: 4, custom_id: "url", value: values["url"] } },
-    { type: 18, component: { type: 3, custom_id: "team", values: [values["team"]] } },
     { type: 18, component: { type: 3, custom_id: "urgency", values: [values["urgency"]] } },
     { type: 18, component: { type: 4, custom_id: "note", value: values["note"] } },
   ];
@@ -23,7 +21,7 @@ function submitted(over: Partial<Record<string, string>> = {}) {
 
 describe("collectValues", () => {
   it("walks the tree, reading both text `value` and select `values`", () => {
-    expect(collectValues(submitted())).toMatchObject({ url: expect.any(String), team: "Power", urgency: "soon" });
+    expect(collectValues(submitted())).toMatchObject({ url: expect.any(String), urgency: "soon" });
   });
 
   it("reads an action-row-wrapped payload identically", () => {
@@ -82,19 +80,15 @@ describe("parseSubmission", () => {
     if (result.ok) expect(result.pr).toEqual({ owner: "someone", repo: "else", number: 1 });
   });
 
-  it("rejects a team no longer in config, rather than casting it through", () => {
-    // Reachable with no forgery involved: a modal held open across a config
-    // deploy that dropped or renamed a team, or (see the empty-string case
-    // below) a select that never got a value at all.
-    const result = parseSubmission(submitted({ team: "Retired Team" }), config);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.rejection).toEqual({ reason: "invalid-team" });
-  });
-
-  it("rejects an empty-string team the same way — a select with nothing chosen", () => {
-    const result = parseSubmission(submitted({ team: "" }), config);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.rejection).toEqual({ reason: "invalid-team" });
+  it("ignores a stray `team` field from a modal opened before teams were removed", () => {
+    // A form opened on the old build and submitted on the new one still carries
+    // the Team select. It must neither reject the submission nor ride along
+    // into the values the retry stash keeps.
+    const stray = [...submitted(), { type: 18, component: { type: 3, custom_id: "team", values: ["Power"] } }];
+    const result = parseSubmission(stray, config);
+    expect(result).toEqual(parseSubmission(submitted(), config));
+    expect(result.ok).toBe(true);
+    expect(Object.keys(result.values)).toEqual(["url", "urgency", "note"]);
   });
 
   it("rejects an urgency no longer in config, rather than silently skipping the note-required check", () => {
@@ -122,7 +116,7 @@ describe("parseSubmission", () => {
   it("defaults every field when the submission carries none of them", () => {
     const result = parseSubmission([], config);
     expect(result.ok).toBe(false);
-    expect(result.values).toEqual({ url: "", team: "", urgency: "", note: "" });
+    expect(result.values).toEqual({ url: "", urgency: "", note: "" });
   });
 
   it("returns the raw submitted values on every rejection, so the prefill hands back what was typed", () => {
@@ -144,7 +138,7 @@ describe("parseSubmission", () => {
     const without = parseSubmission(submitted(), config);
     expect(withStray).toEqual(without);
     expect(withStray.ok).toBe(true);
-    expect(Object.keys(withStray.values)).toEqual(["url", "team", "urgency", "note"]);
+    expect(Object.keys(withStray.values)).toEqual(["url", "urgency", "note"]);
   });
 });
 

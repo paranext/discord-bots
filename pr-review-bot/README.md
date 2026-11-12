@@ -7,16 +7,16 @@ bump message to find out.
 ## The pinned list
 
 A single pinned message at the top of the review channel — the **"Needs
-review" digest** — shows every PR still waiting, grouped by team, newest
-urgency first. It rewrites itself every five minutes. A row leaves the list
+review" digest** — shows every PR still waiting in one list, most urgent
+first, then oldest first. It rewrites itself every five minutes. A row leaves the list
 automatically once GitHub reports that a real person has actually reviewed
 that PR — a comment counts, an approval counts, a request for changes counts.
 Merging or closing the PR also clears its row.
 
 ## How to get on the list
 
-Run `/review-request` in the review channel and fill in the four fields —
-PR link, team, urgency, and a note — then submit. It works for a PR in any
+Run `/review-request` in the review channel and fill in the three fields —
+PR link, urgency, and a note — then submit. It works for a PR in any
 repo the bot can read. The bot posts a consistent request message and adds
 the PR to the list right away. Running the command again on a PR already on
 the list updates that entry instead of adding a second one.
@@ -32,9 +32,8 @@ fixing one field doesn't mean retyping the rest.
 ## How to say you are reviewing something
 
 Open the pinned message and pick the PR from the **`Claim a PR ▾`** menu. It
-moves instantly to the **Being reviewed** section, still showing which team
-and urgency it came from, so a lead scanning for what is blocking a team can
-still see it once it's claimed.
+moves instantly to the **Being reviewed** section, still showing its urgency,
+so anyone scanning for what is blocking can still see it once it's claimed.
 
 ## How to get something off the list
 
@@ -66,7 +65,7 @@ the channel.
 ## What this bot stores
 
 For each PR posted to the review channel: the repository, number and title;
-who asked and when; which team and urgency they chose; who claimed it and
+who asked and when; which urgency they chose; who claimed it and
 when; how many times it was re-asked; and how it left the list.
 
 Records are kept for **30 days after they leave the list**, then deleted. The
@@ -80,7 +79,7 @@ long it waited before being claimed, how long it was held before it was done
 and the total (each rounded to the nearest 5 minutes), whether it was claimed
 at all, how many claims were dropped, and how many times it was re-requested.
 A pending entry **never contains** a name, a Discord or GitHub id, the
-repository, the PR number or title, the note, the team or the urgency.
+repository, the PR number or title, the note or the urgency.
 
 - **A record's round timing is scrubbed about a day after it leaves the
   list.** While a round is open the record keeps when it started, when it was

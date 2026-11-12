@@ -28,7 +28,6 @@ function record(overrides: Partial<PrRecord> = {}): PrRecord {
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
-    team: "Power",
     urgency: "soon",
     ...overrides,
   };
@@ -340,7 +339,6 @@ describe("handleInteraction — /review-request routing", () => {
         custom_id: customId,
         components: [
           { type: 18, component: { type: 4, custom_id: "url", value: "https://github.com/paranext/paranext-core/issues/1" } },
-          { type: 18, component: { type: 4, custom_id: "team", value: "Power" } },
           { type: 18, component: { type: 4, custom_id: "urgency", value: "soon" } },
         ],
       },

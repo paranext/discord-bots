@@ -38,7 +38,6 @@ describe("loadConfig", () => {
     const loaded = loadConfig({ REVIEW_CHANNEL_IDS: `${A},${B}`, DIGEST_CHANNEL_ID: A });
     expect(loaded.allowedChannelIds).toEqual([A, B]);
     expect(loaded.digestChannelId).toBe(A);
-    expect(loaded.teams).toEqual(config.teams);
   });
 
   it("trims spaces and drops empty segments", () => {

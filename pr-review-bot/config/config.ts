@@ -1,5 +1,3 @@
-export type TeamName = "Power" | "Simple" | "General";
-
 export type UrgencyKey = "blocking" | "soon" | "thisWeek";
 
 export interface UrgencyLevel {
@@ -17,7 +15,6 @@ export interface UrgencyLevel {
 export interface Config {
   allowedChannelIds: string[];
   digestChannelId: string;
-  teams: TeamName[];
   urgencies: UrgencyLevel[];
   claimEmoji: string;
   staleClaimMs: number;
@@ -77,7 +74,6 @@ export const config: Config = {
   allowedChannelIds: ["REPLACE_WITH_REVIEW_CHANNEL_ID"],
   /** Placeholder, as above. */
   digestChannelId: "REPLACE_WITH_REVIEW_CHANNEL_ID",
-  teams: ["Power", "Simple", "General"],
   urgencies: [
     { key: "blocking", emoji: "🔥", label: "Blocking", rank: 0, requiresNote: true },
     { key: "soon", emoji: null, label: "Soon", rank: 1, requiresNote: false },

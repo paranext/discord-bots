@@ -93,8 +93,7 @@ function renderOpenRow(r: PrRecord, config: Config): string {
  *  public lateness board, and the rational response to one is to stop claiming. */
 function renderClaimedRow(r: PrRecord, config: Config): string {
   const emoji = urgencyEmojiFor(r, config);
-  const provenance = [emoji, r.team].filter((part): part is string => part !== null && part !== "").join(" ");
-  const suffix = provenance === "" ? "" : ` · ${provenance}`;
+  const suffix = emoji === null ? "" : ` · ${emoji}`;
   return `👀 [${r.title}](${prUrl(r)}) · ${r.claimedByName ?? "someone"}${suffix}`;
 }
 
@@ -109,17 +108,10 @@ function renderClearedLine(r: PrRecord): string {
 function buildBlocks(rows: Row[], config: Config): { open: string[]; claimed: string[] } {
   const open: string[] = [];
   const claimed: string[] = [];
-  let currentHeading: string | null = null;
-
   for (const row of rows) {
-    if (row.section.kind === "claimed") {
+    if (row.record.claimedBy !== null) {
       claimed.push(renderClaimedRow(row.record, config));
       continue;
-    }
-    const heading = row.section.kind === "team" ? `__${row.section.team}__` : "**Needs triage**";
-    if (heading !== currentHeading) {
-      open.push(heading);
-      currentHeading = heading;
     }
     open.push(renderOpenRow(row.record, config));
   }
@@ -189,13 +181,13 @@ export function renderDigest(input: DigestInput): DigestRender {
   const maxRows = input.maxRows ?? DEFAULT_MAX_ROWS;
 
   const allRows = rankRows(records, config);
-  // Claimed rows are exempt from the row-count cap: rankRows sorts "claimed"
-  // after every team and triage section, so a backlog longer than maxRows
+  // Claimed rows are exempt from the row-count cap: rankRows sorts claimed rows
+  // after every open row, so a backlog longer than maxRows
   // would otherwise truncate away exactly the rows someone is actively
   // working — the one section that must never silently disappear.
-  const openRows = allRows.filter((r) => r.section.kind !== "claimed");
-  const claimedRows = allRows.filter((r) => r.section.kind === "claimed");
-  const { rendered: renderedOpen, droppedCount } = truncateRows(openRows, maxRows, config);
+  const openRows = allRows.filter((r) => r.record.claimedBy === null);
+  const claimedRows = allRows.filter((r) => r.record.claimedBy !== null);
+  const { rendered: renderedOpen, droppedCount } = truncateRows(openRows, maxRows);
   const rendered = [...renderedOpen, ...claimedRows];
   const openCount = allRows.length;
 
@@ -211,7 +203,7 @@ export function renderDigest(input: DigestInput): DigestRender {
   // The fresh header's own "updated" stamp is display-only and MUST be kept
   // out of bodyHash: the refresh loop calls renderDigest once per
   // refreshIntervalMs tick, so tickStamp advances to a new bucket on every
-  // single call — if that text fed the hash, an idle team's digest would edit
+  // single call — if that text fed the hash, an idle digest would edit
   // on every tick (288/day) purely to bump its own clock. hashHeaderLines is
   // the same header stripped of that one volatile suffix; everything else
   // (open count, the stale banner and its lastSync epoch, row content) is
@@ -327,7 +319,7 @@ export function renderDigest(input: DigestInput): DigestRender {
   // This does not reintroduce time-dependence into the hash. Every other input
   // to `components` is record state, and the reopen window itself moves the hash
   // exactly twice per resolved row: once when it appears, once when it expires.
-  // An idle team still writes nothing.
+  // An idle digest still writes nothing.
   const bodyHash = stableHash([...hashPrimary, ...trailing, JSON.stringify(components)].join("\u0000"));
 
   return {

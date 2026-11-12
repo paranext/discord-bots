@@ -25,11 +25,8 @@ export function renderDailyPost(input: DailyInput): string | null {
   ];
 
   const blocking = open.filter((r) => r.urgency === "blocking");
-  const firstBlocking = blocking[0];
-  if (firstBlocking !== undefined) {
-    const teams = [...new Set(blocking.map((r) => r.team).filter((t): t is NonNullable<typeof t> => t !== null))];
-    const where = teams.length === 0 ? "" : ` blocking ${teams.join(" and ")}`;
-    sentences.push(blocking.length === 1 ? `One is${where}.` : `${blocking.length} are${where}.`);
+  if (blocking.length > 0) {
+    sentences.push(blocking.length === 1 ? "One is blocking." : `${blocking.length} are blocking.`);
   }
 
   if (input.digestMessageUrl !== null) {

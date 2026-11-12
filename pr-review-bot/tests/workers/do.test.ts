@@ -54,7 +54,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0,
-         fields: { team: "Power", urgency: "blocking", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { urgency: "blocking", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -184,7 +184,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -256,7 +256,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -333,7 +333,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -421,7 +421,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -537,7 +537,7 @@ describe("RecordsObject", () => {
         [{ kind: "upsertRequest",
            pr: { owner: "paranext", repo: "paranext-core", number },
            at: T0 - 3 * 86_400_000,
-           fields: { team: "Power", urgency: "soon", note: null, requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: `m-${number}` },
+           fields: { urgency: "soon", note: null, requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: `m-${number}` },
            title, prAuthorLogin: "jolie", isDraft: false }],
         { now: T0 - 3 * 86_400_000, rerender: false },
       );
@@ -628,7 +628,7 @@ describe("RecordsObject", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "paranext", repo: "paranext-core", number: 177 },
          at: T0 - 86_400_000,
-         fields: { team: "Power", urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+         fields: { urgency: "blocking", note: "blocks the cut", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
          title: "PT-9001", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0, rerender: false },
     );
@@ -804,13 +804,12 @@ describe("RecordsObject", () => {
         prAuthorLogin: "jolie",
         isDraft: false,
       }),
-      team: "Power",
       note: "keep me",
       prdThreadId: "1075535230087221248",
     };
     const stashed = {
       userId: "u1",
-      values: { url: "https://x", team: "Power", urgency: "soon", prdThreadId: "1075535230087221248", note: "n" },
+      values: { url: "https://x", urgency: "soon", prdThreadId: "1075535230087221248", note: "n" },
       expiresAt: 1_756_000_000_000,
     };
     const v4 = {
@@ -832,11 +831,10 @@ describe("RecordsObject", () => {
     expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     const record = migrated.records["paranext/paranext-core#3"]!;
     expect("prdThreadId" in record).toBe(false);
-    expect(record.team).toBe("Power");
     expect(record.note).toBe("keep me");
     expect(migrated.meta.retryStash["i-1"]).toEqual({
       userId: "u1",
-      values: { url: "https://x", team: "Power", urgency: "soon", note: "n" },
+      values: { url: "https://x", urgency: "soon", note: "n" },
       expiresAt: 1_756_000_000_000,
     });
     expect(migrated.meta.digestBodyVersion).toBe(7);
@@ -864,7 +862,7 @@ describe("RecordsObject", () => {
         retryStash: {
           "i-1": {
             userId: "u1",
-            values: { url: "https://x", team: "Power", urgency: "soon", prdThreadId: "1", note: "n" },
+            values: { url: "https://x", urgency: "soon", prdThreadId: "1", note: "n" },
             expiresAt: 1_756_000_000_000,
           },
         },
@@ -876,7 +874,7 @@ describe("RecordsObject", () => {
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect((migrated.meta as { prdCache?: unknown }).prdCache).toBeNull();
     expect("prdThreadId" in migrated.records["paranext/paranext-core#4"]!).toBe(false);
-    expect(migrated.meta.retryStash["i-1"]!.values).toEqual({ url: "https://x", team: "Power", urgency: "soon", note: "n" });
+    expect(migrated.meta.retryStash["i-1"]!.values).toEqual({ url: "https://x", urgency: "soon", note: "n" });
   });
 
   it("leaves prdCache absent on version 5 state that never had it", () => {
@@ -907,11 +905,69 @@ describe("RecordsObject", () => {
     const migrated = migrateState(v6 as never);
 
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(CURRENT_SCHEMA_VERSION).toBe(7);
-    expect(migrated.records["paranext/paranext-core/5"]).toEqual({ ...v6Record, ...OPEN_AT_DEPLOY });
+    expect(CURRENT_SCHEMA_VERSION).toBe(8);
+    expect(migrated.records["paranext/paranext-core/5"]).toEqual({ ...v6Record, ...OPEN_AT_DEPLOY, team: null });
     expect(migrated.stats).toEqual(emptyStats());
     // v7 adds sinceWeek unset: the first fold after deploy decides it.
     expect(migrated.stats.sinceWeek).toBeNull();
+  });
+
+  it("migrates version 7 state to 8, tombstoning every record's team as null, dropping stashed teams, and nothing else", () => {
+    const record = testRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 6 },
+      channelId: "c",
+      messageId: "m",
+      messageTimestamp: 1_756_000_000_000,
+      title: "PT-6",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    const stashed = {
+      userId: "u1",
+      values: { url: "https://x", team: "Power", urgency: "soon", note: "n" },
+      expiresAt: 1_756_000_000_000,
+    };
+    const v7 = {
+      schemaVersion: 7,
+      records: { "paranext/paranext-core/6": { ...record, team: "Power", note: "keep me" } },
+      meta: { ...emptyState().meta, scanCursors: {}, scanBackfill: {}, retryStash: { "i-1": stashed } },
+      stats: emptyStats(),
+    };
+
+    const migrated = migrateState(v7 as never);
+
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.records["paranext/paranext-core/6"]).toEqual({ ...record, note: "keep me", team: null });
+    expect(migrated.meta.retryStash["i-1"]).toEqual({
+      userId: "u1",
+      values: { url: "https://x", urgency: "soon", note: "n" },
+      expiresAt: 1_756_000_000_000,
+    });
+  });
+
+  it("clears a team an old build wrote back after the migration, on the next load", () => {
+    // Mid-rollout, an old-build process can still save a record carrying
+    // `team` into state already labelled 8. The strip re-runs on every load,
+    // resetting it to the `null` tombstone every old reader handles.
+    const record = testRecord({
+      pr: { owner: "paranext", repo: "paranext-core", number: 7 },
+      channelId: "c",
+      messageId: "m",
+      messageTimestamp: 1_756_000_000_000,
+      title: "PT-7",
+      prAuthorLogin: "jolie",
+      isDraft: false,
+    });
+    const v8 = {
+      schemaVersion: 8,
+      records: { "paranext/paranext-core/7": { ...record, team: "Simple" } },
+      meta: { ...emptyState().meta, scanCursors: {}, scanBackfill: {} },
+      stats: emptyStats(),
+    };
+
+    const migrated = migrateState(v8 as never);
+
+    expect(migrated.records["paranext/paranext-core/7"]!).toHaveProperty("team", null);
   });
 
   it("still walks unversioned state all the way to the current version", () => {
@@ -937,7 +993,6 @@ describe("RecordsObject", () => {
       });
     const commanded = {
       ...base(2),
-      team: "Power" as const,
       claimedBy: "u9",
       claimedByName: "Ira",
       claimedAt: T0,
@@ -957,7 +1012,7 @@ describe("RecordsObject", () => {
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(Object.keys(migrated.records)).toEqual(["paranext/paranext-core/2"]);
     // Every field survives except `source`.
-    expect(migrated.records["paranext/paranext-core/2"]).toEqual({ ...commanded, ...OPEN_AT_DEPLOY });
+    expect(migrated.records["paranext/paranext-core/2"]).toEqual({ ...commanded, ...OPEN_AT_DEPLOY, team: null });
     // Tombstones, not deleted: an old-build scan mid-deploy reads
     // `cursors[channelId]` with no fallback and crashes on an absent map.
     expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
@@ -997,12 +1052,12 @@ describe("RecordsObject", () => {
 
     const migrated = migrateState(v6 as never);
 
-    expect(migrated.records).toEqual({ "paranext/paranext-core/2": { ...commanded, ...OPEN_AT_DEPLOY } });
+    expect(migrated.records).toEqual({ "paranext/paranext-core/2": { ...commanded, ...OPEN_AT_DEPLOY, team: null } });
     expect((migrated.meta as { scanCursors?: unknown }).scanCursors).toEqual({});
     expect((migrated.meta as { scanBackfill?: unknown }).scanBackfill).toEqual({});
   });
 
-  it("returns already-clean version 7 state without copying it", () => {
+  it("returns already-clean version 8 state without copying it", () => {
     const record = testRecord({
       pr: { owner: "paranext", repo: "paranext-core", number: 1 },
       channelId: "c",
@@ -1012,20 +1067,20 @@ describe("RecordsObject", () => {
       prAuthorLogin: "jolie",
       isDraft: false,
     });
-    // The 6 -> 7 step rebuilds every record, so only state already at 7 can
-    // come through uncopied.
-    const v7 = {
-      schemaVersion: 7,
-      records: { "paranext/paranext-core/1": record },
+    // The 7 -> 8 step rebuilds every record, so only state already at 8 —
+    // whose records carry the `team: null` tombstone — can come through uncopied.
+    const v8 = {
+      schemaVersion: 8,
+      records: { "paranext/paranext-core/1": { ...record, team: null } },
       meta: { ...emptyState().meta, scanCursors: {}, scanBackfill: {} },
       stats: emptyStats(),
     };
 
-    const migrated = migrateState(v7 as never);
+    const migrated = migrateState(v8 as never);
 
-    expect(migrated.records).toBe(v7.records);
-    expect(migrated.meta).toBe(v7.meta);
-    expect(migrated.stats).toBe(v7.stats);
+    expect(migrated.records).toBe(v8.records);
+    expect(migrated.meta).toBe(v8.meta);
+    expect(migrated.stats).toBe(v8.stats);
   });
 
   it("starts fresh state without the scan's fields", () => {

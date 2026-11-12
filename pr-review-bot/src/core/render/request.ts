@@ -14,7 +14,6 @@ export function renderRequestMessage(r: PrRecord, config: Config): string {
 
   const headParts: string[] = [];
   if (level !== null) headParts.push(urgencyText(level, { bold: true }));
-  if (r.team !== null) headParts.push(r.team.toLowerCase());
   headParts.push(clamp(r.title, 400));
   if (r.isDraft) headParts.push("draft");
 
@@ -27,7 +26,7 @@ export function renderRequestMessage(r: PrRecord, config: Config): string {
   // The URL must survive clamping intact: a truncated link is not a link at
   // all, and this one is how a reviewer actually gets to the PR. It sits alone
   // on its own line to stay readable and easy to click — NOT to earn an unfurl.
-  // The unfurl is suppressed at the send (`DiscordRest.postContent`): it duplicates the title, team and urgency this message
+  // The unfurl is suppressed at the send (`DiscordRest.postContent`): it duplicates the title and urgency this message
   // already renders, and reviewers were deleting it by hand. So the budget is
   // spent on everything else first.
   const maxHeadLength = DISCORD_MESSAGE_LIMIT - url.length - 1;

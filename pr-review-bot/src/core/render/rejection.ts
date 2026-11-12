@@ -31,11 +31,6 @@ function headline(rejection: SubmitRejection, config: Config): string {
         "It was not shortened for you — a truncated link can still point at a real but *different* PR. " +
         "Paste the plain `https://github.com/owner/repo/pull/123` form, without tracking parameters."
       );
-    case "invalid-team":
-      return (
-        `That team is not on the current list — pick one of: ${config.teams.join(", ")}. ` +
-        "It may have changed since this form was opened."
-      );
     case "invalid-urgency":
       return (
         `That urgency is not on the current list — pick one of: ${config.urgencies.map((u) => urgencyText(u)).join(", ")}. ` +
@@ -84,7 +79,7 @@ export function renderRejection(input: {
   const { values } = input;
   const echo = [
     `> **Link:** ${clamp(values.url, FIELD_ECHO_LIMIT)}`,
-    `> **Team:** ${clamp(values.team, FIELD_ECHO_LIMIT)} · **Urgency:** ${clamp(values.urgency, FIELD_ECHO_LIMIT)}`,
+    `> **Urgency:** ${clamp(values.urgency, FIELD_ECHO_LIMIT)}`,
     ...(values.note.trim() === "" ? [] : [`> **Note:** ${clamp(values.note, FIELD_ECHO_LIMIT)}`]),
   ].join("\n");
 

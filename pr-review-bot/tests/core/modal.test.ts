@@ -16,7 +16,6 @@ function customIds(response: ReturnType<typeof buildRequestModal>): unknown[] {
 
 const PREFILL = {
   url: "https://github.com/paranext/paranext-core/pull/9",
-  team: "Simple",
   urgency: "blocking",
   note: "just the CSS bit",
 };
@@ -26,12 +25,12 @@ describe("buildRequestModal", () => {
     const modal = buildRequestModal(config);
     expect(modal.type).toBe(9);
     expect(modal.data?.custom_id).toBe(MODAL_ID);
-    expect(modal.data?.components).toHaveLength(4);
+    expect(modal.data?.components).toHaveLength(3);
   });
 
-  it("has no PRD field, fresh or prefilled — the PRD forum lived on a server the bot no longer reaches", () => {
-    expect(customIds(buildRequestModal(config))).toEqual(["url", "team", "urgency", "note"]);
-    expect(customIds(buildRequestModal(config, PREFILL))).toEqual(["url", "team", "urgency", "note"]);
+  it("has no PRD or team field, fresh or prefilled — both were retired", () => {
+    expect(customIds(buildRequestModal(config))).toEqual(["url", "urgency", "note"]);
+    expect(customIds(buildRequestModal(config, PREFILL))).toEqual(["url", "urgency", "note"]);
   });
 
   it("wraps every input in a Label (type 18) — string selects are invalid in an action row in modals", () => {
@@ -57,10 +56,6 @@ describe("buildRequestModal", () => {
     const modal = buildRequestModal(config, PREFILL);
     expect(field(modal, FIELD_IDS.url).component["value"]).toBe("https://github.com/paranext/paranext-core/pull/9");
     expect(field(modal, FIELD_IDS.note).component["value"]).toBe("just the CSS bit");
-    const team = (field(modal, FIELD_IDS.team).component["options"] as { value: string; default?: boolean }[]).find(
-      (o) => o.value === "Simple",
-    );
-    expect(team?.default).toBe(true);
     const urgency = (
       field(modal, FIELD_IDS.urgency).component["options"] as { value: string; default?: boolean }[]
     ).find((o) => o.value === "blocking");
@@ -80,8 +75,8 @@ describe("buildRequestModal", () => {
 
   it("clamps every string to its documented cap", () => {
     // Drives a genuinely long string into every position that CAN be driven
-    // long through the public parameters: config's team/urgency entries feed
-    // the Team and Urgency selects' option label/value, and the prefill feeds
+    // long through the public parameters: config's urgency entries feed
+    // the Urgency select's option label/value, and the prefill feeds
     // the text inputs. `title`, every field's Label.label, every
     // Label.description, and the urgency option's "requires a note"
     // description are all fixed literals in the implementation, disconnected
@@ -90,7 +85,6 @@ describe("buildRequestModal", () => {
     // caught.
     const longConfig: Config = {
       ...config,
-      teams: ["T".repeat(400) as unknown as Config["teams"][number]],
       urgencies: [
         {
           key: "blocking",
@@ -103,7 +97,6 @@ describe("buildRequestModal", () => {
     };
     const modal = buildRequestModal(longConfig, {
       url: "u".repeat(5000),
-      team: "Power",
       urgency: "soon",
       note: "x".repeat(5000),
     });

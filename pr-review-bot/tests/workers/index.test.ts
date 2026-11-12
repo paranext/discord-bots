@@ -83,7 +83,7 @@ async function seedOpenRecord(owner: string, repo: string, number: number): Prom
     [{ kind: "upsertRequest",
        pr: { owner, repo, number },
        at: Date.now() - 3_600_000,
-       fields: { team: "Power", urgency: "soon", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
+       fields: { urgency: "soon", note: "", requesterId: "u0", requesterName: "Jolie", channelId: "chan", messageId: "msg" },
        title: `${repo}#${number}`, prAuthorLogin: "someone-else", isDraft: false }],
     { now: Date.now(), rerender: false },
   );

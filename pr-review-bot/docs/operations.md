@@ -37,9 +37,19 @@ returns fewer rows. `/review-stats` in Discord shows the same data privately.
 Deploy registers slash commands itself (`docs/setup.md` step 15). The tick report logs `statsFolded`, the number of
 pending entries folded into weekly totals that tick.
 
-**Rollback warning.** Review stats moved the store to schema version 7. Once a
-v7 build has run, a v6 build refuses to load the state and takes the whole bot
-down. **Do not roll back across it; roll forward** with a fix.
+**Rollback warning.** Review stats moved the store to schema version 7, and
+retiring teams moved it to version 8. Once a build at a given version has run,
+any earlier build refuses to load the state ("Stored state is at schema version
+8, newer than this build's 7") and takes the whole bot down — every tick,
+interaction and `/review-request` fails. **Do not roll back across either
+version (Cloudflare's one-click rollback included); roll forward** with a fix.
+
+**Rolling out schema 8 (teams retired).** While old and new builds overlap,
+the store keeps `team: null` on every record so old-build readers stay safe.
+One gap remains: a user who opens the new three-field `/review-request` modal
+and whose submit reaches an old-build worker is told "That team is not on the
+current list" and gets a retry modal with a Team select. That only lasts as
+long as the rollout. Re-running `/review-request` after it finishes works.
 
 ## The digest was deleted
 
@@ -165,26 +175,13 @@ endpoint.**
 - **`GH_PUBLIC_TOKEN` expiry date:** _(fill in on first deploy — see
   `docs/setup.md` step 8)_
 
-## Adding a team
+## Adding a repo
 
 Any repo is accepted by `/review-request`; there is nothing to add. A
 `paranext` repo is covered because the GitHub App is installed on all
 `paranext` repositories (setup step 6), and every other owner goes through the
 public token. A PR the bot can't read (a typo, or a private repo outside
 `paranext`) is refused at submit as `not-found`.
-
-A team is a one-line PR to `config/config.ts`: add the name to the `teams`
-array (order there is the order sections render in on the digest). It takes
-effect on the next deploy. No data migration is needed — `teams` is read fresh
-from config on every tick.
-
-**Removing a team** needs no migration either, but say what happens to the rows
-that were already filed under it: they render in **Triage** from the next tick,
-because `ranking.ts` treats a team that is no longer in config as no team at
-all. Nobody has to clean the store — re-request the rows that still matter with
-a team that exists, and the rest age out on their own. (`/review-request`
-already refuses to create a record for a team not in config, so this only ever
-applies to rows that predate the removal.)
 
 ## Store data lost
 
@@ -195,7 +192,7 @@ There is no backup to restore from; recovery is a documented rebuild, not a
 restore:
 
 Re-read the bot's own past request messages in the channel (they carry the
-same team/urgency/note information that was in the lost record) and re-run
+same urgency/note information that was in the lost record) and re-run
 `/review-request` on each one to recreate it. Nothing rebuilds records on its
 own: there is no channel scan.
 

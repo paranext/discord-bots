@@ -19,7 +19,6 @@ function commanded(overrides: Partial<PrRecord> = {}): PrRecord {
     number: 2695,
     channelId: "chan",
     messageId: "msg",
-    team: "Simple",
     urgency: "thisWeek",
     note: null,
     requesterId: "user-1",
@@ -112,7 +111,6 @@ describe("resolve and reopen", () => {
 
 describe("markRequested", () => {
   const fields = {
-    team: "Power" as const,
     urgency: "blocking" as const,
     note: "blocks the release cut",
     requesterId: "user-2",
@@ -193,7 +191,6 @@ describe("markRequested", () => {
 describe("newCommandRecord", () => {
   const pr = { owner: "paranext", repo: "paranext-core", number: 2695 };
   const fields = {
-    team: "Power" as const,
     urgency: "blocking" as const,
     note: "blocks the release cut",
     requesterId: "user-2",
@@ -208,7 +205,6 @@ describe("newCommandRecord", () => {
     expect(r.firstRequestedAt).toBe(T0);
     expect(r.lastRequestedAt).toBe(T0);
     expect(r.messageId).toBeNull();
-    expect(r.team).toBe(fields.team);
     expect(r.claimedBy).toBeNull();
     expect(r.lastReactors).toBeNull();
     expect(r.resolvedAt).toBeNull();

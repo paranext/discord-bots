@@ -104,7 +104,7 @@ export interface StoreState {
  *  in `Meta`; kept only for old-build processes mid-deploy); version 7 added
  *  the five per-round fields to every record (`PrRecord.roundStartedAt` and
  *  its four siblings) and `StoreState.stats`, the anonymous review stats. */
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export type Command =
   | {

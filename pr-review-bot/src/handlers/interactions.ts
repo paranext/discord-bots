@@ -273,7 +273,7 @@ function describe(result: CommandResult | undefined, title: string, action: "cla
   switch (result.kind) {
     case "ok":
       if (action === "claim") return ephemeral(`You are reviewing **${title}**. It has moved to *Being reviewed*.`);
-      if (action === "unclaim") return ephemeral(`Released **${title}**. It is back in its team section.`);
+      if (action === "unclaim") return ephemeral(`Released **${title}**. It is back on the list.`);
       if (action === "reopen") return ephemeral(`**${title}** is back on the list.`);
       return ephemeral(`Cleared **${title}** from the list.`);
     case "already-claimed":

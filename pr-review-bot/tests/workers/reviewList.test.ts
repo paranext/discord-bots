@@ -20,7 +20,6 @@ function record(number: number, overrides: { title?: string } = {}): PrRecord {
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
-    team: "Power",
     urgency: "soon",
   };
 }

@@ -50,7 +50,6 @@ function record(number: number, overrides: Partial<PrRecord> = {}): PrRecord {
       prAuthorLogin: "jolie",
       isDraft: false,
     }),
-    team: "Power",
     urgency: "soon",
     ...overrides,
   };
@@ -315,7 +314,7 @@ describe("runTick — the exit condition end to end", () => {
       [{ kind: "upsertRequest",
          pr: { owner: "eten-tech-foundation", repo: "scripture-editors", number: 1 },
          at: T0 - 60_000,
-         fields: { team: "Power", urgency: "blocking", note: "addressed the feedback", requesterId: "u1", requesterName: "Jolie", channelId: CHANNEL, messageId: "m-new" },
+         fields: { urgency: "blocking", note: "addressed the feedback", requesterId: "u1", requesterName: "Jolie", channelId: CHANNEL, messageId: "m-new" },
          title: "PT-1", prAuthorLogin: "jolie", isDraft: false }],
       { now: T0 - 60_000, rerender: false },
     );

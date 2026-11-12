@@ -15,7 +15,6 @@ const DAY = 24 * HOUR;
 const ID = "paranext/paranext-core/2695";
 const PR = { owner: "paranext", repo: "paranext-core", number: 2695 };
 const FIELDS: RequestFields = {
-  team: "Power",
   urgency: "soon",
   note: "",
   requesterId: "u-1",
@@ -64,7 +63,6 @@ describe("upsertRequest", () => {
     pr: { owner: "paranext", repo: "paranext-core", number: 2695 },
     at: T0 + 2 * HOUR,
     fields: {
-      team: "Power",
       urgency: "blocking",
       note: "blocks the cut",
       requesterId: "u-1",
@@ -541,7 +539,7 @@ describe("emptyState", () => {
   });
 });
 
-const VALUES = { url: "https://x", team: "Power", urgency: "soon", note: "" };
+const VALUES = { url: "https://x", urgency: "soon", note: "" };
 
 describe("setRequestMessageId", () => {
   it("writes the message id without moving lastRequestedAt or requestCount", () => {

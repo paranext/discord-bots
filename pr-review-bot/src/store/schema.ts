@@ -27,9 +27,9 @@ type StoredMeta = Omit<Meta, "digestBodyVersion" | "retryStash"> & {
 };
 
 /** A `StashedSubmission` as some earlier deploy could have written it: before
- *  version 5 its `values` carried `prdThreadId`. */
+ *  version 5 its `values` carried `prdThreadId`, and before version 8 `team`. */
 type StoredStashedSubmission = Omit<StashedSubmission, "values"> & {
-  values: StashedSubmission["values"] & { prdThreadId?: string | null };
+  values: StashedSubmission["values"] & { prdThreadId?: string | null; team?: string };
 };
 
 /**
@@ -37,7 +37,8 @@ type StoredStashedSubmission = Omit<StashedSubmission, "values"> & {
  * three fields, so version-3 records lack them; version 5 removed
  * `prdThreadId`, so records before it carry it; version 6 removed `source`, so
  * records before it carry it; version 7 added the five per-round fields, so
- * records before it lack them.
+ * records before it lack them; version 8 retired `team`, so records before it
+ * carry a real one (from 8 on it is only ever the `null` tombstone).
  */
 type StoredRecord = Omit<
   PrRecord,
@@ -60,6 +61,7 @@ type StoredRecord = Omit<
   lastReactors?: string[] | null;
   prdThreadId?: string | null;
   source?: "command" | "scanned";
+  team?: string | null;
 };
 
 /**
@@ -252,6 +254,21 @@ export function migrateState(stored: StoredState): StoreState {
     state = { ...state, schemaVersion: 7, records, stats: emptyStats() };
   }
 
+  // 7 → 8: teams were retired — the digest is one list ranked by urgency and
+  // age, and the request form no longer asks. `team` is deleted from every
+  // stashed retry's values, but on every record it is NOT deleted but set to
+  // `null`: while a deploy rolls out, Worker processes on the old build still
+  // read this state, and every old reader treats `null` as "no team" (the
+  // request message skips it, the digest ranks the row into Needs triage, the
+  // claim/resolve menus and the daily post leave it out) but mishandles
+  // `undefined` — the request message calls `team.toLowerCase()` and throws
+  // after the record is already stored, and the menus show "· undefined".
+  // Same reasoning as the `prdCache` tombstone. The old modal prefill reads a
+  // stashed `team` with `?? null`, so the stash needs no tombstone.
+  if (state.schemaVersion === 7) {
+    state = { ...stripRetiredTeam(state), schemaVersion: 8 };
+  }
+
   // Every version, every load: the same strips again. An old-build tick that
   // was already running when the deploy landed can still commit through the new
   // Durable Object — writing a full `prdCache` back with `setMeta`, a
@@ -276,7 +293,7 @@ export function migrateState(stored: StoredState): StoreState {
   // of this re-run resets. The scanned-record half re-runs too, so that
   // dropping those records does not rest on `applyOne` continuing to reject
   // `upsertScanned`.
-  state = stripRetiredScan(stripRetiredPrd(state));
+  state = stripRetiredTeam(stripRetiredScan(stripRetiredPrd(state)));
 
   // Sound because the last step above produces CURRENT_SCHEMA_VERSION, and
   // anything higher was refused before the chain ran.
@@ -338,4 +355,30 @@ function stripRetiredScan(state: MigratingState): MigratingState {
     records[id] = rest;
   }
   return { ...state, records, meta: { ...state.meta, scanCursors: {}, scanBackfill: {} } };
+}
+
+/**
+ * Retires every stored team: `team` on each record collapsed to its `null`
+ * tombstone, and removed from each stashed retry's values. Like the scan maps,
+ * the tombstone is written even when absent, so a record the new build creates
+ * also reads safely on an old build. Runs on every load like the other strips,
+ * so a team an old build writes during the rollout is cleared on the next load.
+ */
+function stripRetiredTeam(state: MigratingState): MigratingState {
+  // Skipped on clean state for the same reason as `stripRetiredPrd`.
+  const dirty =
+    Object.values(state.records).some((record) => record.team !== null) ||
+    Object.values(state.meta.retryStash ?? {}).some((entry) => "team" in entry.values);
+  if (!dirty) return state;
+
+  const records: Record<string, StoredRecord> = {};
+  for (const [id, record] of Object.entries(state.records)) {
+    records[id] = { ...record, team: null };
+  }
+  const retryStash: Record<string, StoredStashedSubmission> = {};
+  for (const [key, entry] of Object.entries(state.meta.retryStash ?? {})) {
+    const { team: _team, ...values } = entry.values;
+    retryStash[key] = { ...entry, values };
+  }
+  return { ...state, records, meta: { ...state.meta, retryStash } };
 }

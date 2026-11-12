@@ -6,7 +6,7 @@ export type RoundOutcome = "reviewed" | "merged-unreviewed" | "closed-unreviewed
 /**
  * One finished round, waiting for its week to be folded. Deliberately holds NO
  * identifying field: no Discord id, name, GitHub login, repo, PR number, title,
- * note, team, urgency or message id. That is what makes the stats anonymous.
+ * note, urgency or message id. That is what makes the stats anonymous.
  */
 export interface PendingEntry {
   id: number;

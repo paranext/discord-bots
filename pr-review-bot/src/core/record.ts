@@ -1,4 +1,4 @@
-import type { TeamName, UrgencyKey } from "../../config/config.js";
+import type { UrgencyKey } from "../../config/config.js";
 import { prSlug, type ParsedPr } from "./urls.js";
 
 /** How the current claim was made. Decides whether removing a reaction may
@@ -20,7 +20,6 @@ export interface PrRecord {
   channelId: string;
   messageId: string | null;
 
-  team: TeamName | null;
   urgency: UrgencyKey | null;
   note: string | null;
 
@@ -96,7 +95,6 @@ export interface PrRecord {
 }
 
 export interface RequestFields {
-  team: TeamName;
   urgency: UrgencyKey;
   note: string | null;
   requesterId: string;
