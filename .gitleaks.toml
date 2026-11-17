@@ -1,0 +1,19 @@
+title = "discord-bots gitleaks config"
+
+# Start from gitleaks' built-in rules, so every default detector still runs.
+# The allowlists below only carve out the specific, known-safe findings.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "RSA private keys generated only for these tests. They sign nothing real and exist so the GitHub App JWT signing path can be exercised."
+condition = "AND"
+paths = ['''^pr-review-bot/tests/workers/(credentials|index|query)\.test\.ts$''']
+regexes = ['''-----BEGIN (RSA )?PRIVATE KEY-----''']
+
+[[allowlists]]
+description = "Zero-padded placeholder DISCORD_PUBLIC_KEY in a historical plan's test vars. It is not a real Discord key."
+condition = "AND"
+targetRules = ["discord-api-token"]
+paths = ['''^pr-review-bot/docs/superpowers/plans/2026-08-31-pr-review-bot-tracking\.md$''']
+regexes = ['''^0{62}ff$''']
