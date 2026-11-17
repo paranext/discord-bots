@@ -1,0 +1,8 @@
+node_modules/
+coverage/
+.wrangler/
+preview/out/
+.preview-build/
+.script-build/
+.dev.vars
+.superpowers/

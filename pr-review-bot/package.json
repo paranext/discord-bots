@@ -1,0 +1,33 @@
+{
+  "name": "pr-review-bot",
+  "version": "1.0.0",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "register-commands": "tsc -p tsconfig.json --noEmit false --outDir .script-build && node .script-build/scripts/register-commands.js",
+    "preview": "vitest run --project=core && tsc -p tsconfig.json --noEmit false --outDir .preview-build && node .preview-build/preview/build.js",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "description": "",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.1.2",
+    "@cloudflare/workers-types": "5.20260831.1",
+    "@vitest/coverage-istanbul": "4.1.11",
+    "eslint": "9.39.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.69.0",
+    "vitest": "4.1.11",
+    "wrangler": "4.127.1"
+  }
+}

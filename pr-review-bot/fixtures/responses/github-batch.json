@@ -1,0 +1,55 @@
+{
+  "data": {
+    "p0": {
+      "pullRequest": {
+        "number": 2695,
+        "title": "PT-9003: Internet & Connectivity settings UI refinements",
+        "isDraft": false,
+        "merged": false,
+        "state": "OPEN",
+        "mergedAt": null,
+        "closedAt": null,
+        "author": {
+          "login": "reviewer-a"
+        },
+        "reviews": {
+          "nodes": []
+        }
+      }
+    },
+    "p1": {
+      "pullRequest": {
+        "number": 2600,
+        "title": "Suppress jsdom CSS-parse dumps that hang Linux CI unit tests",
+        "isDraft": false,
+        "merged": true,
+        "state": "MERGED",
+        "mergedAt": "2026-07-30T18:00:00Z",
+        "closedAt": "2026-07-30T18:00:00Z",
+        "author": {
+          "login": "reviewer-b"
+        },
+        "reviews": {
+          "nodes": [
+            {
+              "submittedAt": "2026-07-23T17:16:56Z",
+              "state": "COMMENTED",
+              "author": {
+                "login": "reviewer-c",
+                "__typename": "User"
+              }
+            },
+            {
+              "submittedAt": "2026-07-30T17:54:01Z",
+              "state": "APPROVED",
+              "author": {
+                "login": "reviewer-c",
+                "__typename": "User"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
