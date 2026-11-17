@@ -1,10 +1,11 @@
-name: Deploy
+name: pr-review-bot Deploy
 on:
-  # Deploy only after CI has passed on master, never in parallel with it.
+  # Deploy only after this bot's CI has passed on main, never in parallel with
+  # it. CI's path filter means it, and so this, runs only when the bot changed.
   workflow_run:
-    workflows: [CI]
+    workflows: ["pr-review-bot CI"]
     types: [completed]
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -13,38 +14,41 @@ permissions:
 # One deploy at a time, and a queued deploy waits rather than cancelling one
 # that is midway through uploading secrets or registering commands.
 concurrency:
-  group: production
+  group: pr-review-bot-production
   cancel-in-progress: false
 
 jobs:
   deploy:
     # Every deploy value is a secret in this environment, so a fork or a copy of
     # the repo has nothing to deploy with.
-    environment: production
-    # DEPLOY_ENABLED is a repository variable, so forks and fresh copies skip
-    # instead of failing on missing secrets. For workflow_run: CI must have
+    environment: pr-review-bot-production
+    # PR_REVIEW_BOT_DEPLOY_ENABLED is a repository variable, one per bot, so
+    # forks, fresh copies and a bot not yet switched on skip instead of failing
+    # on missing secrets. For workflow_run: CI must have
     # succeeded (completed also fires on failure); it must have run for a push,
     # because the branches filter also matches a pull request whose head branch
-    # is named master, such as one from a fork's master; and the commit must come
+    # is named main, such as one from a fork's main; and the commit must come
     # from this repository, a second guard against running a fork's code.
     if: >-
-      vars.DEPLOY_ENABLED == 'true' && (
+      vars.PR_REVIEW_BOT_DEPLOY_ENABLED == 'true' && (
         github.event_name == 'workflow_dispatch' || (
           github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_branch == 'master' &&
+          github.event.workflow_run.head_branch == 'main' &&
           github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     steps:
-      # Deploy the exact commit CI tested, not whatever master points at now.
+      # Deploy the exact commit CI tested, not whatever main points at now.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       # CI runs for two quick pushes can finish out of order, and `concurrency`
-      # only serialises deploys, it does not order them. If master has moved
+      # only serialises deploys, it does not order them. If main has moved
       # past this commit, skip: the newer commit's own CI run deploys it, and
-      # deploying this one after it would roll production back.
-      - name: Check this commit is still the tip of master
+      # deploying this one after it would roll production back. A commit that
+      # touches only another bot also moves main and skips this deploy; the
+      # next pr-review-bot change deploys everything, or run this by hand.
+      - name: Check this commit is still the tip of main
         id: tip
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -53,22 +57,24 @@ jobs:
             echo "current=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tip="$(git ls-remote origin refs/heads/master | cut -f1)"
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [ "${tip}" = "${HEAD_SHA}" ]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
             echo "current=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::master is now at ${tip}; skipping this deploy of ${HEAD_SHA}."
+            echo "::notice::main is now at ${tip}; skipping this deploy of ${HEAD_SHA}."
           fi
       - if: steps.tip.outputs.current == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: pr-review-bot/package-lock.json
       # Installs the pinned wrangler from package.json, which the action then
       # uses because wranglerVersion is not set.
       - if: steps.tip.outputs.current == 'true'
         run: npm ci
+        working-directory: pr-review-bot
       # Values go only through `secrets`, which the action pipes to
       # `wrangler secret bulk` on stdin. The `vars` input and `--var` print
       # their values in the log, and this repository's logs are public.
@@ -79,6 +85,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: pr-review-bot
           command: deploy
           secrets: |
             DISCORD_BOT_TOKEN
@@ -111,6 +118,7 @@ jobs:
       # Re-register slash commands so the guild matches the deployed code.
       - if: steps.tip.outputs.current == 'true'
         run: npm run register-commands
+        working-directory: pr-review-bot
         env:
           DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}

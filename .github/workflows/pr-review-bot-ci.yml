@@ -1,0 +1,35 @@
+name: pr-review-bot CI
+on:
+  # Only changes to this bot, or to its own workflows, run its checks. Other
+  # bots in this repository have their own CI. gitleaks.yml scans every change.
+  pull_request:
+    paths:
+      - "pr-review-bot/**"
+      - ".github/workflows/pr-review-bot-*.yml"
+  push:
+    # This repository's default branch is main. Naming a branch that does not
+    # exist is silent: the push job simply never runs, so anything that reached
+    # main without a PR would never be typechecked, linted or tested.
+    branches: [main]
+    paths:
+      - "pr-review-bot/**"
+      - ".github/workflows/pr-review-bot-*.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pr-review-bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: pr-review-bot/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run coverage
+      - run: npm run preview

@@ -1,28 +1,11 @@
-name: CI
+name: gitleaks
 on:
+  # Every change to the repository, whichever bot's folder it touches.
   pull_request:
   push:
-    # This repository's default branch is master, not main. Naming a branch that
-    # does not exist is silent: the push job simply never ran, so anything that
-    # reached master without a PR — a direct push, or a merge commit depending on
-    # the merge strategy — was never typechecked, linted or tested.
-    branches: [master]
+    branches: [main]
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run coverage
-      - run: npm run preview
-
   gitleaks:
     runs-on: ubuntu-latest
     steps:
