@@ -336,7 +336,10 @@ so do these in order:
    `gh secret set <NAME> --env pr-review-bot-production --repo paranext/discord-bots`
    reading the value from stdin. Never pass a value as a command argument.
 2. **Switch the old repo off.** In `jolierabideau/pr-review-bot`, set the
-   repository variable `DEPLOY_ENABLED` to `false`.
+   repository variable `DEPLOY_ENABLED` to `false`. That does not stop a
+   deploy already queued or running there, and the two repositories' deploys
+   don't wait for each other, so check its Actions → Deploy page shows no
+   queued or in-progress run before step 3.
 3. **Switch this repo on.** Set the repository variable
    `PR_REVIEW_BOT_DEPLOY_ENABLED` to `true`, then run Actions → pr-review-bot
    Deploy → Run workflow on `main`. Check `/health` (see the top of this file)
