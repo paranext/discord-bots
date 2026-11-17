@@ -150,8 +150,9 @@ the error.
 | `GH_APP_PRIVATE_KEY` | `paranext`-owned repos stop syncing (`credentials.app.failedClosed`) | **Key age, tracked by hand below — not by `/health`** |
 | `GH_PUBLIC_TOKEN` | Non-`paranext` repos (any other owner) stop syncing | Token expiry date, tracked by hand below |
 
-To rotate any secret: update the GitHub secret in the `production`
-environment, then re-run Deploy (Actions → Deploy → Run workflow).
+To rotate any secret: update the GitHub secret in the
+`pr-review-bot-production` environment, then re-run Deploy (Actions →
+pr-review-bot Deploy → Run workflow).
 
 On an existing Worker, the secrets upload publishes a new version of the old
 code with the new secret values before `deploy` runs. A failed deploy
@@ -320,3 +321,28 @@ people post to discuss a PR, which is why it isn't on by default.
   requests issued rather than DMs delivered on purpose: Discord's Create-DM
   abuse ceiling counts attempts, and a blocked recipient is a stable property
   of *their* settings that no number of retries will change.
+
+## Moving deploys from the personal repo (cutover)
+
+Until this is done, production and the test server still deploy from
+`jolierabideau/pr-review-bot`, and work merged here is not live anywhere.
+Exactly one repository may deploy to the `pr-review-bot` Worker at any time,
+so do these in order:
+
+1. **Secrets (repo admin).** Create the `pr-review-bot-production` environment
+   with its deployment-branch rule set to `main` only, and add the 13 bot
+   secrets plus `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
+   (`docs/setup.md` step 11). Enter each value in the GitHub UI, or with
+   `gh secret set <NAME> --env pr-review-bot-production --repo paranext/discord-bots`
+   reading the value from stdin. Never pass a value as a command argument.
+2. **Switch the old repo off.** In `jolierabideau/pr-review-bot`, set the
+   repository variable `DEPLOY_ENABLED` to `false`.
+3. **Switch this repo on.** Set the repository variable
+   `PR_REVIEW_BOT_DEPLOY_ENABLED` to `true`, then run Actions → pr-review-bot
+   Deploy → Run workflow on `main`. Check `/health` (see the top of this file)
+   and run a slash command in Discord.
+4. **Test server.** The `pr-review-bot-test` Worker, deployed by hand from the
+   old repo's `test-server` branch, can be kept or deleted.
+
+The Worker name, Durable Object class and migration tag are unchanged, so the
+stored records, claims and API keys carry over.

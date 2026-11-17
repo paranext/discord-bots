@@ -1098,3 +1098,42 @@ Deploys are gated four ways:
   unmasked in a public log.
 - *Deploying from a laptop with `wrangler deploy`* — keeps the values off
   GitHub but wipes any var set by CI and depends on one person's machine.
+
+## adr-multi-bot-repo-layout
+
+**Status.** Accepted 2026-11-17.
+
+**Context.** The bot moved from `jolierabideau/pr-review-bot` into
+`paranext/discord-bots`, a repository meant to hold this bot and any Discord
+bots that follow. No second bot is planned, and it is not known whether one
+would be a separate Discord app or more commands on this one. GitHub reads
+workflows, `secret_scanning.yml` and (in CI here) `.gitleaks.toml` from the
+repository root only.
+
+**Decision.** Each bot is a self-contained folder (`pr-review-bot/`) with its
+own `package.json`, lockfile, Wrangler config, tests and docs; nothing is
+shared between bots. The root holds only what must be there: per-bot workflows
+(`pr-review-bot-ci.yml`, path-filtered to the folder, and
+`pr-review-bot-deploy.yml`), a repo-wide `gitleaks.yml`, `.gitleaks.toml` and
+`.github/secret_scanning.yml` with paths prefixed by the bot's folder. Each bot
+has its own deploy switch and environment: here `PR_REVIEW_BOT_DEPLOY_ENABLED`
+and `pr-review-bot-production`, deploying from `main`. History was rewritten
+into the folder and merged, so `git log` on the bot's files goes back to the
+start.
+
+This supersedes the names `DEPLOY_ENABLED`, `production` and `master` in
+`adr-deploy-values-are-worker-secrets`; its reasoning is unchanged. Earlier
+records are left as written.
+
+**Consequences.**
+- `npm` commands run from `pr-review-bot/`, not the root.
+- The deploy skips a CI run whose commit is no longer the tip of `main`, and a
+  commit that touches only another bot moves the tip, so a pending deploy can
+  be skipped. The next change to this bot deploys, or run Deploy by hand.
+
+**Alternatives rejected.**
+- *npm workspaces with shared tooling now* — the shared parts would be guesses
+  about a bot that does not exist, and wasted if the next bot is more commands
+  on this one.
+- *The bot at the repository root, restructured later* — the later move would
+  re-touch every path, the workflows and the plugin install path.

@@ -145,5 +145,5 @@ create and how to run the first deploy.
 ## Test keys
 
 `tests/workers/*.test.ts` contain RSA private keys generated only for these
-tests. They sign nothing real and are allowlisted in `.gitleaks.toml` and
-`.github/secret_scanning.yml`.
+tests. They sign nothing real and are allowlisted in the repository root's
+`.gitleaks.toml` and `.github/secret_scanning.yml`.

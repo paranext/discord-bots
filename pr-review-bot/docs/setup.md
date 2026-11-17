@@ -137,20 +137,25 @@ sufficient.
 
 ## 11. Set the GitHub secrets
 
-The bot deploys from GitHub Actions (`.github/workflows/deploy.yml`). Every
+The bot deploys from GitHub Actions (`.github/workflows/pr-review-bot-deploy.yml`
+at the repository root). Every
 deploy value is a GitHub secret, and each deploy uploads them all to the
 Worker as Worker secrets. Nothing is a `wrangler.jsonc` var, because this
 repo's Actions logs are public (see `adr-deploy-values-are-worker-secrets`).
 The GitHub credentials use a `GH_` prefix because GitHub rejects secret names
 that start with `GITHUB_`.
 
+Creating environments and repository variables needs admin on the
+repository.
+
 **Create the environment first.** Settings → Environments → New environment,
-named `production`. Under "Deployment branches and tags", choose "Selected
-branches and tags" and add `master` only. This rule is required: it is what
+named `pr-review-bot-production` (one environment per bot in this repository).
+Under "Deployment branches and tags", choose "Selected branches and tags" and
+add `main` only. This rule is required: it is what
 stops a manual run of Deploy from deploying another branch with the
 production secrets.
 
-Then add these as **environment secrets** on `production`:
+Then add these as **environment secrets** on `pr-review-bot-production`:
 
 | Secret | What it is, and where to get it |
 |---|---|
@@ -186,8 +191,8 @@ binding is wrong; `/health` and `/stats` keep working. Fix the secret and
 re-run Deploy.
 
 **Set the repository variable last.** Settings → Secrets and variables →
-Actions → Variables → New repository variable: `DEPLOY_ENABLED` = `true`.
-Until it is `true`, Deploy skips every run, which is why a fork or a fresh
+Actions → Variables → New repository variable: `PR_REVIEW_BOT_DEPLOY_ENABLED`
+= `true`. Until it is `true`, pr-review-bot Deploy skips every run, which is why a fork or a fresh
 copy of the repo does not fail on missing secrets. Set it only after every
 secret above exists.
 
@@ -206,8 +211,9 @@ body. Like `/health`, **`/stats` answers 404 until it is set.**
 
 ## 12. Deploy and watch three ticks
 
-Run the Deploy workflow by hand: Actions → Deploy → Run workflow, on `master`.
-From now on it also runs after every CI success on `master`.
+Run the deploy workflow by hand: Actions → pr-review-bot Deploy → Run workflow,
+on `main`. From now on it also runs after every pr-review-bot CI success on
+`main`.
 
 The first deploy's log shows "Creating new Worker" and a warning that the
 Worker was "last updated via the script API". Both are expected: the action
